@@ -1,7 +1,7 @@
 -- SETTINGS
 getgenv().AimbotInput = "RightClick"
-getgenv().AimbotEasing = 1
-getgenv().TeamCheck = false
+getgenv().AimbotEasing = 0
+getgenv().TeamCheck = true
 getgenv().FOVRadius = 75
 
 -- Show Loading Message
