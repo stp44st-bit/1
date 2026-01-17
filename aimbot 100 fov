@@ -2,7 +2,7 @@
 getgenv().AimbotInput = "RightClick"
 getgenv().AimbotEasing = 1
 getgenv().TeamCheck = false
-getgenv().FOVRadius = 100
+getgenv().FOVRadius = 75
 
 -- Show Loading Message
 local function showLoadingMessage()
