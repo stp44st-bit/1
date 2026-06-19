@@ -1363,8 +1363,40 @@ task.spawn(function()
 end)
 
 --------------------------------------------------------------
--- AUTO PARRY SYSTEM
+-- AUTO PARRY SYSTEM (OPTIMIZED)
 --------------------------------------------------------------
+local ActiveProjectiles = {}
+local ParryRemotes = {}
+
+pcall(function()
+	for _, remote in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
+		if remote:IsA("RemoteEvent") and (remote.Name:lower():find("parry") or remote.Name:lower():find("block") or remote.Name:lower():find("deflect")) then
+			table.insert(ParryRemotes, remote)
+		end
+	end
+end)
+
+local function CheckProjectile(obj)
+	if obj:IsA("BasePart") then
+		local name = obj.Name:lower()
+		if name:find("bullet") or name:find("projectile") or name:find("slash") or name:find("attack") then
+			ActiveProjectiles[obj] = true
+		end
+	end
+end
+
+for _, obj in pairs(workspace:GetDescendants()) do
+	CheckProjectile(obj)
+end
+
+Connections.ProjAdd = workspace.DescendantAdded:Connect(function(obj)
+	CheckProjectile(obj)
+end)
+
+Connections.ProjRem = workspace.DescendantRemoving:Connect(function(obj)
+	ActiveProjectiles[obj] = nil
+end)
+
 task.spawn(function()
 	while not IsUiClosed do
 		if State.AutoParry then
@@ -1372,27 +1404,24 @@ task.spawn(function()
 				local char = plr.Character
 				if char and char:FindFirstChild("HumanoidRootPart") then
 					local myPos = char.HumanoidRootPart.Position
-					-- à¸•à¸£à¸§à¸ˆà¸ˆà¸±à¸š projectiles à¸«à¸£à¸·à¸­ attacks à¹ƒà¸à¸¥à¹‰à¸•à¸±à¸§
-					for _, obj in pairs(workspace:GetDescendants()) do
-						if (obj:IsA("BasePart") and (obj.Name:lower():find("bullet") or obj.Name:lower():find("projectile") or obj.Name:lower():find("slash") or obj.Name:lower():find("attack"))) then
+					
+					for obj, _ in pairs(ActiveProjectiles) do
+						if obj and obj.Parent then
 							local dist = (obj.Position - myPos).Magnitude
 							if dist < 20 then
-								-- à¸à¸” Parry (F key)
 								pcall(function()
 									game:GetService("VirtualInputManager"):SendKeyEvent(true, Enum.KeyCode.F, false, game)
 									task.wait(0.05)
 									game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.F, false, game)
 								end)
-								-- à¸¥à¸­à¸‡à¹ƒà¸Šà¹‰ RemoteEvent à¸–à¹‰à¸²à¸¡à¸µ
-								pcall(function()
-									for _, remote in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
-										if remote:IsA("RemoteEvent") and (remote.Name:lower():find("parry") or remote.Name:lower():find("block") or remote.Name:lower():find("deflect")) then
-											remote:FireServer()
-										end
-									end
-								end)
+								for _, remote in pairs(ParryRemotes) do
+									pcall(function() remote:FireServer() end)
+								end
+								ActiveProjectiles[obj] = nil
 								break
 							end
+						else
+							ActiveProjectiles[obj] = nil
 						end
 					end
 				end
@@ -1457,6 +1486,7 @@ CloseBtn.MouseButton1Click:Connect(function()
 	-- Reset everything
 	ClearESP()
 	ClearChams()
+	ActiveProjectiles = {}
 
 	State.Noclip = false
 	State.Speed = false
