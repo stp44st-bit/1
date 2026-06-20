@@ -56,10 +56,13 @@ RedlinerHub.Name = "RedlinerHub"
 if game:GetService("RunService"):IsStudio() then
 	RedlinerHub.Parent = plr.PlayerGui
 else
-	local ok = pcall(function()
+	local ok, err = pcall(function()
 		RedlinerHub.Parent = (gethui and gethui()) or game:GetService("CoreGui")
 	end)
-	if not ok then RedlinerHub.Parent = game:GetService("CoreGui") end
+	if not ok then
+		local ok2 = pcall(function() RedlinerHub.Parent = game:GetService("CoreGui") end)
+		if not ok2 then RedlinerHub.Parent = plr.PlayerGui end
+	end
 end
 RedlinerHub.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 RedlinerHub.ResetOnSpawn = false
@@ -1368,12 +1371,17 @@ end)
 local ActiveProjectiles = {}
 local ParryRemotes = {}
 
-pcall(function()
-	for _, remote in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
-		if remote:IsA("RemoteEvent") and (remote.Name:lower():find("parry") or remote.Name:lower():find("block") or remote.Name:lower():find("deflect")) then
-			table.insert(ParryRemotes, remote)
+task.spawn(function()
+	pcall(function()
+		local descendants = game:GetService("ReplicatedStorage"):GetDescendants()
+		for i = 1, #descendants do
+			local remote = descendants[i]
+			if remote:IsA("RemoteEvent") and (remote.Name:lower():find("parry") or remote.Name:lower():find("block") or remote.Name:lower():find("deflect")) then
+				table.insert(ParryRemotes, remote)
+			end
+			if i % 500 == 0 then task.wait() end
 		end
-	end
+	end)
 end)
 
 local function CheckProjectile(obj)
@@ -1385,9 +1393,13 @@ local function CheckProjectile(obj)
 	end
 end
 
-for _, obj in pairs(workspace:GetDescendants()) do
-	CheckProjectile(obj)
-end
+task.spawn(function()
+	local descendants = workspace:GetDescendants()
+	for i = 1, #descendants do
+		CheckProjectile(descendants[i])
+		if i % 500 == 0 then task.wait() end
+	end
+end)
 
 Connections.ProjAdd = workspace.DescendantAdded:Connect(function(obj)
 	CheckProjectile(obj)
@@ -1434,6 +1446,20 @@ end)
 --------------------------------------------------------------
 -- KILL AURA SYSTEM
 --------------------------------------------------------------
+local KillRemotes = {}
+task.spawn(function()
+	pcall(function()
+		local descendants = game:GetService("ReplicatedStorage"):GetDescendants()
+		for i = 1, #descendants do
+			local remote = descendants[i]
+			if remote:IsA("RemoteEvent") and (remote.Name:lower():find("attack") or remote.Name:lower():find("hit") or remote.Name:lower():find("damage") or remote.Name:lower():find("swing") or remote.Name:lower():find("slash")) then
+				table.insert(KillRemotes, remote)
+			end
+			if i % 500 == 0 then task.wait() end
+		end
+	end)
+end)
+
 task.spawn(function()
 	while not IsUiClosed do
 		if State.KillAura then
@@ -1444,13 +1470,10 @@ task.spawn(function()
 					for _, enemy in pairs(GetEnemies()) do
 						local dist = (enemy.Character.HumanoidRootPart.Position - myPos).Magnitude
 						if dist < 15 then
-							-- à¸¥à¸­à¸‡à¹ƒà¸Šà¹‰ melee attack remotes
 							pcall(function()
-								for _, remote in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
-									if remote:IsA("RemoteEvent") and (remote.Name:lower():find("attack") or remote.Name:lower():find("hit") or remote.Name:lower():find("damage") or remote.Name:lower():find("swing") or remote.Name:lower():find("slash")) then
-										remote:FireServer(enemy.Character.HumanoidRootPart)
-										remote:FireServer(enemy.Character)
-									end
+								for _, remote in pairs(KillRemotes) do
+									remote:FireServer(enemy.Character.HumanoidRootPart)
+									remote:FireServer(enemy.Character)
 								end
 							end)
 						end
