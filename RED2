@@ -1,0 +1,1599 @@
+--[[
+	REDLINER Helper GUI v1.0
+	à¸ªà¸³à¸«à¸£à¸±à¸šà¹€à¸à¸¡ REDLINER à¸šà¸™ Roblox
+	FPS Game - High Mobility + Parry Mechanics
+	
+	à¸Ÿà¸µà¹€à¸ˆà¸­à¸£à¹Œ: 4 à¸«à¸™à¹‰à¸²
+	  Page 1: Combat (ESP, Aim Assist, Auto Parry, Kill Aura à¸¯à¸¥à¸¯)
+	  Page 2: Movement (Speed, Fly, Noclip, Auto BHop, Inf Dash à¸¯à¸¥à¸¯)
+	  Page 3: Visuals (Full Bright, FOV, Tracers, Chams à¸¯à¸¥à¸¯)
+	  Page 4: Utility (Anti-AFK, Server Hop, FPS Display à¸¯à¸¥à¸¯)
+	
+	à¸›à¸¸à¹ˆà¸¡à¸¥à¸±à¸”:
+	  F1 = à¹€à¸›à¸´à¸”/à¸›à¸´à¸” GUI
+	  F2 = Player ESP
+	  F3 = Noclip
+	  F4 = Fly
+	  F5 = Speed Boost
+	  F6 = Auto Parry
+]]
+
+--------------------------------------------------------------
+-- ANTI-DUPLICATE
+--------------------------------------------------------------
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+if getgenv()["RedlinerGUI"] == nil then
+	getgenv()["MeeHubGUI"] = true
+else
+	game:GetService("StarterGui"):SetCore("SendNotification", {
+		Title = "âš ï¸ MeeHub",
+		Text = "GUI is already running! Close the previous one first.",
+		Duration = 5
+	})
+	return
+end
+
+--------------------------------------------------------------
+-- SERVICES
+--------------------------------------------------------------
+local Players = game:GetService("Players")
+local RS = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+local StarterGui = game:GetService("StarterGui")
+local TweenService = game:GetService("TweenService")
+local Camera = workspace.CurrentCamera
+
+local plr = Players.LocalPlayer
+local mouse = plr:GetMouse()
+
+--------------------------------------------------------------
+-- CREATE SCREENGUI
+--------------------------------------------------------------
+local MeeHub = Instance.new("ScreenGui")
+MeeHub.Name = "MeeHub"
+if game:GetService("RunService"):IsStudio() then
+	MeeHub.Parent = plr.PlayerGui
+else
+	local ok, err = pcall(function()
+		MeeHub.Parent = (gethui and gethui()) or game:GetService("CoreGui")
+	end)
+	if not ok then
+		local ok2 = pcall(function() MeeHub.Parent = game:GetService("CoreGui") end)
+		if not ok2 then MeeHub.Parent = plr.PlayerGui end
+	end
+end
+MeeHub.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+MeeHub.ResetOnSpawn = false
+
+--------------------------------------------------------------
+-- MAIN FRAME
+--------------------------------------------------------------
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Parent = MeeHub
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+MainFrame.Size = UDim2.new(0.4, 0, 0.6, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+MainFrame.BackgroundTransparency = 0.05
+MainFrame.BorderSizePixel = 0
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 12)
+MainCorner.Parent = MainFrame
+
+local MainStroke = Instance.new("UIStroke")
+MainStroke.Color = Color3.fromRGB(138, 43, 226) -- Premium Purple
+MainStroke.Thickness = 2
+MainStroke.Transparency = 0.1
+MainStroke.Parent = MainFrame
+
+--------------------------------------------------------------
+-- TITLE BAR
+--------------------------------------------------------------
+local TitleBar = Instance.new("Frame")
+TitleBar.Name = "TitleBar"
+TitleBar.Parent = MainFrame
+TitleBar.Size = UDim2.new(1, 0, 0, 40)
+TitleBar.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
+TitleBar.BorderSizePixel = 0
+
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 12)
+TitleCorner.Parent = TitleBar
+
+-- Fix bottom corners of title
+local TitleFix = Instance.new("Frame")
+TitleFix.Parent = TitleBar
+TitleFix.Size = UDim2.new(1, 0, 0, 10)
+TitleFix.Position = UDim2.new(0, 0, 1, -10)
+TitleFix.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
+TitleFix.BorderSizePixel = 0
+
+local TitleText = Instance.new("TextLabel")
+TitleText.Parent = TitleBar
+TitleText.Size = UDim2.new(0.7, 0, 1, 0)
+TitleText.Position = UDim2.new(0.03, 0, 0, 0)
+TitleText.BackgroundTransparency = 1
+TitleText.Font = Enum.Font.GothamBlack
+TitleText.Text = "âœ¨ MeeHub v1.0"
+TitleText.TextColor3 = Color3.fromRGB(255, 255, 255)
+TitleText.TextScaled = true
+TitleText.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Close Button
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Name = "Close"
+CloseBtn.Parent = TitleBar
+CloseBtn.Size = UDim2.new(0, 30, 0, 30)
+CloseBtn.Position = UDim2.new(1, -33, 0, 3)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
+CloseBtn.BorderSizePixel = 0
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.TextScaled = true
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 6)
+CloseCorner.Parent = CloseBtn
+
+-- Minimize Button
+local MinBtn = Instance.new("TextButton")
+MinBtn.Name = "Minimize"
+MinBtn.Parent = TitleBar
+MinBtn.Size = UDim2.new(0, 30, 0, 30)
+MinBtn.Position = UDim2.new(1, -66, 0, 3)
+MinBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+MinBtn.BorderSizePixel = 0
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.Text = "_"
+MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MinBtn.TextScaled = true
+local MinCorner = Instance.new("UICorner")
+MinCorner.CornerRadius = UDim.new(0, 6)
+MinCorner.Parent = MinBtn
+
+--------------------------------------------------------------
+-- TAB BUTTONS (Page Navigation)
+--------------------------------------------------------------
+local TabBar = Instance.new("Frame")
+TabBar.Parent = MainFrame
+TabBar.Size = UDim2.new(1, 0, 0, 28)
+TabBar.Position = UDim2.new(0, 0, 0, 38)
+TabBar.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+TabBar.BorderSizePixel = 0
+
+local tabNames = {"âš”ï¸ Combat", "ðŸƒ Movement", "ðŸ‘ï¸ Visuals", "ðŸ”§ Utility"}
+local tabButtons = {}
+
+for i, name in ipairs(tabNames) do
+	local tab = Instance.new("TextButton")
+	tab.Name = "Tab" .. i
+	tab.Parent = TabBar
+	tab.Size = UDim2.new(0.25, 0, 1, 0)
+	tab.Position = UDim2.new(0.25 * (i - 1), 0, 0, 0)
+	tab.BackgroundColor3 = i == 1 and Color3.fromRGB(160, 60, 240) or Color3.fromRGB(35, 35, 45)
+	tab.BackgroundTransparency = i == 1 and 0 or 0.3
+	tab.BorderSizePixel = 0
+	tab.Font = Enum.Font.GothamBold
+	tab.Text = name
+	tab.TextColor3 = Color3.fromRGB(255, 255, 255)
+	tab.TextScaled = true
+	tab.TextSize = 12
+	tabButtons[i] = tab
+end
+
+--------------------------------------------------------------
+-- CONTENT AREA
+--------------------------------------------------------------
+local ContentArea = Instance.new("Frame")
+ContentArea.Parent = MainFrame
+ContentArea.Size = UDim2.new(1, -16, 1, -100)
+ContentArea.Position = UDim2.new(0, 8, 0, 70)
+ContentArea.BackgroundTransparency = 1
+ContentArea.BorderSizePixel = 0
+ContentArea.ClipsDescendants = true
+
+--------------------------------------------------------------
+-- HELPER: à¸ªà¸£à¹‰à¸²à¸‡à¸›à¸¸à¹ˆà¸¡ Toggle
+--------------------------------------------------------------
+local function CreateToggleBtn(parent, name, text, position, defaultColor)
+	local btn = Instance.new("TextButton")
+	btn.Name = name
+	btn.Parent = parent
+	btn.Position = position
+	btn.Size = UDim2.new(0.3, -4, 0, 32)
+	btn.BackgroundColor3 = defaultColor or Color3.fromRGB(40, 40, 50)
+	btn.BorderSizePixel = 0
+	btn.Font = Enum.Font.GothamSemibold
+	btn.Text = text
+	btn.TextColor3 = Color3.fromRGB(220, 220, 220)
+	btn.TextScaled = true
+	btn.TextSize = 11
+	
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 6)
+	corner.Parent = btn
+	
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(70, 70, 80)
+	stroke.Thickness = 1
+	stroke.Parent = btn
+	
+	return btn
+end
+
+local function SetBtnOn(btn)
+	btn.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+end
+
+local function SetBtnOff(btn)
+	btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+	btn.TextColor3 = Color3.fromRGB(220, 220, 220)
+end
+
+local function CreateSectionTitle(parent, text, position)
+	local label = Instance.new("TextLabel")
+	label.Parent = parent
+	label.Position = position
+	label.Size = UDim2.new(1, 0, 0, 20)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBold
+	label.Text = text
+	label.TextColor3 = Color3.fromRGB(255, 60, 60)
+	label.TextScaled = true
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	return label
+end
+
+--------------------------------------------------------------
+-- PAGE 1: COMBAT
+--------------------------------------------------------------
+local Page1 = Instance.new("ScrollingFrame")
+Page1.Name = "Page1"
+Page1.Parent = ContentArea
+Page1.Size = UDim2.new(1, 0, 1, 0)
+Page1.BackgroundTransparency = 1
+Page1.BorderSizePixel = 0
+Page1.ScrollBarThickness = 4
+Page1.ScrollBarImageColor3 = Color3.fromRGB(200, 30, 30)
+Page1.CanvasSize = UDim2.new(0, 0, 0, 400)
+Page1.Visible = true
+
+CreateSectionTitle(Page1, "â€” ESP & Visuals â€”", UDim2.new(0, 0, 0, 0))
+local PlayerESPBtn = CreateToggleBtn(Page1, "PlayerESP", "Player ESP: OFF", UDim2.new(0, 0, 0, 24))
+local HealthBarBtn = CreateToggleBtn(Page1, "HealthBar", "Health Bars: OFF", UDim2.new(0.33, 2, 0, 24))
+local TracersBtn = CreateToggleBtn(Page1, "Tracers", "Tracers: OFF", UDim2.new(0.66, 4, 0, 24))
+
+CreateSectionTitle(Page1, "â€” Aim Assist â€”", UDim2.new(0, 0, 0, 64))
+local AimAssistBtn = CreateToggleBtn(Page1, "AimAssist", "Aim Assist: OFF", UDim2.new(0, 0, 0, 88))
+local AimFOVBtn = CreateToggleBtn(Page1, "AimFOV", "Aim FOV: 90", UDim2.new(0.33, 2, 0, 88))
+local SilentAimBtn = CreateToggleBtn(Page1, "SilentAim", "Silent Aim: OFF", UDim2.new(0.66, 4, 0, 88))
+
+CreateSectionTitle(Page1, "â€” Combat Cheats â€”", UDim2.new(0, 0, 0, 128))
+local AutoParryBtn = CreateToggleBtn(Page1, "AutoParry", "Auto Parry: OFF", UDim2.new(0, 0, 0, 152))
+local KillAuraBtn = CreateToggleBtn(Page1, "KillAura", "Kill Aura: OFF", UDim2.new(0.33, 2, 0, 152))
+local HitboxBtn = CreateToggleBtn(Page1, "Hitbox", "Hitbox Expand: OFF", UDim2.new(0.66, 4, 0, 152))
+
+CreateSectionTitle(Page1, "â€” Weapon Mods â€”", UDim2.new(0, 0, 0, 192))
+local NoRecoilBtn = CreateToggleBtn(Page1, "NoRecoil", "No Recoil: OFF", UDim2.new(0, 0, 0, 216))
+local NoSpreadBtn = CreateToggleBtn(Page1, "NoSpread", "No Spread: OFF", UDim2.new(0.33, 2, 0, 216))
+local RapidFireBtn = CreateToggleBtn(Page1, "RapidFire", "Rapid Fire: OFF", UDim2.new(0.66, 4, 0, 216))
+
+local InfAmmoBtn = CreateToggleBtn(Page1, "InfAmmo", "Inf Ammo: OFF", UDim2.new(0, 0, 0, 256))
+local AutoShootBtn = CreateToggleBtn(Page1, "AutoShoot", "Auto Shoot: OFF", UDim2.new(0.33, 2, 0, 256))
+local InstantKillBtn = CreateToggleBtn(Page1, "InstantKill", "Instant Kill: OFF", UDim2.new(0.66, 4, 0, 256))
+
+--------------------------------------------------------------
+-- PAGE 2: MOVEMENT
+--------------------------------------------------------------
+local Page2 = Instance.new("ScrollingFrame")
+Page2.Name = "Page2"
+Page2.Parent = ContentArea
+Page2.Size = UDim2.new(1, 0, 1, 0)
+Page2.BackgroundTransparency = 1
+Page2.BorderSizePixel = 0
+Page2.ScrollBarThickness = 4
+Page2.ScrollBarImageColor3 = Color3.fromRGB(200, 30, 30)
+Page2.CanvasSize = UDim2.new(0, 0, 0, 350)
+Page2.Visible = false
+
+CreateSectionTitle(Page2, "â€” Speed & Movement â€”", UDim2.new(0, 0, 0, 0))
+local SpeedBtn = CreateToggleBtn(Page2, "Speed", "Speed: OFF (x2)", UDim2.new(0, 0, 0, 24))
+local FlyMoveBtn = CreateToggleBtn(Page2, "FlyMove", "Fly: OFF", UDim2.new(0.33, 2, 0, 24))
+local NoclipMoveBtn = CreateToggleBtn(Page2, "NoclipMove", "Noclip: OFF", UDim2.new(0.66, 4, 0, 24))
+
+CreateSectionTitle(Page2, "â€” Advanced Movement â€”", UDim2.new(0, 0, 0, 64))
+local InfDashBtn = CreateToggleBtn(Page2, "InfDash", "Inf Dash: OFF", UDim2.new(0, 0, 0, 88))
+local AutoBHopBtn = CreateToggleBtn(Page2, "AutoBHop", "Auto BHop: OFF", UDim2.new(0.33, 2, 0, 88))
+local InfGrappleBtn = CreateToggleBtn(Page2, "InfGrapple", "Inf Grapple: OFF", UDim2.new(0.66, 4, 0, 88))
+
+local SpeedMultBtn = CreateToggleBtn(Page2, "SpeedMult", "Speed: x2", UDim2.new(0, 0, 0, 128))
+local JumpPwrBtn = CreateToggleBtn(Page2, "JumpPwr", "Jump: 50", UDim2.new(0.33, 2, 0, 128))
+local GravityBtn = CreateToggleBtn(Page2, "Gravity", "Low Gravity: OFF", UDim2.new(0.66, 4, 0, 128))
+
+CreateSectionTitle(Page2, "â€” Teleport â€”", UDim2.new(0, 0, 0, 168))
+local TpClosestBtn = CreateToggleBtn(Page2, "TpClosest", "TP Closest Enemy", UDim2.new(0, 0, 0, 192))
+local TpBehindBtn = CreateToggleBtn(Page2, "TpBehind", "TP Behind Target", UDim2.new(0.33, 2, 0, 192))
+local TpSpawnBtn = CreateToggleBtn(Page2, "TpSpawn", "TP to Spawn", UDim2.new(0.66, 4, 0, 192))
+
+CreateSectionTitle(Page2, "â€” Character â€”", UDim2.new(0, 0, 0, 232))
+local InfHealthBtn = CreateToggleBtn(Page2, "InfHealth", "Inf Health: OFF", UDim2.new(0, 0, 0, 256))
+local InvisBtn = CreateToggleBtn(Page2, "Invis", "Invisible: OFF", UDim2.new(0.33, 2, 0, 256))
+local SmallCharBtn = CreateToggleBtn(Page2, "SmallChar", "Small Character", UDim2.new(0.66, 4, 0, 256))
+
+--------------------------------------------------------------
+-- PAGE 3: VISUALS
+--------------------------------------------------------------
+local Page3 = Instance.new("ScrollingFrame")
+Page3.Name = "Page3"
+Page3.Parent = ContentArea
+Page3.Size = UDim2.new(1, 0, 1, 0)
+Page3.BackgroundTransparency = 1
+Page3.BorderSizePixel = 0
+Page3.ScrollBarThickness = 4
+Page3.ScrollBarImageColor3 = Color3.fromRGB(200, 30, 30)
+Page3.CanvasSize = UDim2.new(0, 0, 0, 300)
+Page3.Visible = false
+
+CreateSectionTitle(Page3, "â€” Lighting â€”", UDim2.new(0, 0, 0, 0))
+local FullBrightBtn = CreateToggleBtn(Page3, "FullBright", "Full Bright: OFF", UDim2.new(0, 0, 0, 24))
+local NoFogBtn = CreateToggleBtn(Page3, "NoFog", "No Fog: OFF", UDim2.new(0.33, 2, 0, 24))
+local NightModeBtn = CreateToggleBtn(Page3, "NightMode", "Night Mode: OFF", UDim2.new(0.66, 4, 0, 24))
+
+CreateSectionTitle(Page3, "â€” Camera â€”", UDim2.new(0, 0, 0, 64))
+local FOVBtn = CreateToggleBtn(Page3, "FOV", "FOV: 70", UDim2.new(0, 0, 0, 88))
+local ThirdPersonBtn = CreateToggleBtn(Page3, "ThirdPerson", "3rd Person: OFF", UDim2.new(0.33, 2, 0, 88))
+local FreecamMoveBtn = CreateToggleBtn(Page3, "FreecamMove", "Freecam: OFF", UDim2.new(0.66, 4, 0, 88))
+
+CreateSectionTitle(Page3, "â€” Player Chams â€”", UDim2.new(0, 0, 0, 128))
+local ChamsBtn = CreateToggleBtn(Page3, "Chams", "Chams: OFF", UDim2.new(0, 0, 0, 152))
+local ChamsColorBtn = CreateToggleBtn(Page3, "ChamsColor", "Color: Red", UDim2.new(0.33, 2, 0, 152))
+local BoxESPBtn = CreateToggleBtn(Page3, "BoxESP", "Box ESP: OFF", UDim2.new(0.66, 4, 0, 152))
+
+CreateSectionTitle(Page3, "â€” Effects â€”", UDim2.new(0, 0, 0, 192))
+local NoParticlesBtn = CreateToggleBtn(Page3, "NoParticles", "No Particles: OFF", UDim2.new(0, 0, 0, 216))
+local CrosshairBtn = CreateToggleBtn(Page3, "Crosshair", "Crosshair: OFF", UDim2.new(0.33, 2, 0, 216))
+local HitMarkerBtn = CreateToggleBtn(Page3, "HitMarker", "Hit Marker: OFF", UDim2.new(0.66, 4, 0, 216))
+
+--------------------------------------------------------------
+-- PAGE 4: UTILITY
+--------------------------------------------------------------
+local Page4 = Instance.new("ScrollingFrame")
+Page4.Name = "Page4"
+Page4.Parent = ContentArea
+Page4.Size = UDim2.new(1, 0, 1, 0)
+Page4.BackgroundTransparency = 1
+Page4.BorderSizePixel = 0
+Page4.ScrollBarThickness = 4
+Page4.ScrollBarImageColor3 = Color3.fromRGB(200, 30, 30)
+Page4.CanvasSize = UDim2.new(0, 0, 0, 350)
+Page4.Visible = false
+
+CreateSectionTitle(Page4, "â€” Anti-Kick â€”", UDim2.new(0, 0, 0, 0))
+local AntiAFKBtn = CreateToggleBtn(Page4, "AntiAFK", "Anti-AFK: OFF", UDim2.new(0, 0, 0, 24))
+local AntiSlowBtn = CreateToggleBtn(Page4, "AntiSlow", "Anti-Slow: OFF", UDim2.new(0.33, 2, 0, 24))
+local AntiVoidBtn = CreateToggleBtn(Page4, "AntiVoid", "Anti-Void: OFF", UDim2.new(0.66, 4, 0, 24))
+
+CreateSectionTitle(Page4, "â€” Server â€”", UDim2.new(0, 0, 0, 64))
+local ServerHopBtn = CreateToggleBtn(Page4, "ServerHop", "Server Hop", UDim2.new(0, 0, 0, 88))
+local RejoinBtn = CreateToggleBtn(Page4, "Rejoin", "Rejoin", UDim2.new(0.33, 2, 0, 88))
+local CopyJobBtn = CreateToggleBtn(Page4, "CopyJob", "Copy JobId", UDim2.new(0.66, 4, 0, 88))
+
+CreateSectionTitle(Page4, "â€” Performance â€”", UDim2.new(0, 0, 0, 128))
+local FPSDisplayBtn = CreateToggleBtn(Page4, "FPSDisplay", "FPS Display: OFF", UDim2.new(0, 0, 0, 152))
+local PingDisplayBtn = CreateToggleBtn(Page4, "PingDisplay", "Ping Display: OFF", UDim2.new(0.33, 2, 0, 152))
+local LagReduceBtn = CreateToggleBtn(Page4, "LagReduce", "Reduce Lag: OFF", UDim2.new(0.66, 4, 0, 152))
+
+CreateSectionTitle(Page4, "â€” Misc â€”", UDim2.new(0, 0, 0, 192))
+local InfYieldBtn = CreateToggleBtn(Page4, "InfYield", "Infinite Yield", UDim2.new(0, 0, 0, 216))
+local ChatSpamBtn = CreateToggleBtn(Page4, "ChatSpam", "Chat Spam: OFF", UDim2.new(0.33, 2, 0, 216))
+local RespawnBtn = CreateToggleBtn(Page4, "Respawn", "Force Respawn", UDim2.new(0.66, 4, 0, 216))
+
+-- Status bar
+local StatusBar = Instance.new("TextLabel")
+StatusBar.Parent = MainFrame
+StatusBar.Size = UDim2.new(1, 0, 0, 22)
+StatusBar.Position = UDim2.new(0, 0, 1, -22)
+StatusBar.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+StatusBar.BorderSizePixel = 0
+StatusBar.Font = Enum.Font.Gotham
+StatusBar.Text = "  MeeHub | F1=Toggle GUI | F2-F6=Shortcuts"
+StatusBar.TextColor3 = Color3.fromRGB(150, 150, 160)
+StatusBar.TextScaled = true
+StatusBar.TextXAlignment = Enum.TextXAlignment.Left
+
+local StatusCorner = Instance.new("UICorner")
+StatusCorner.CornerRadius = UDim.new(0, 8)
+StatusCorner.Parent = StatusBar
+
+-- FPS/Ping overlay
+local FPSLabel = Instance.new("TextLabel")
+FPSLabel.Parent = MeeHub
+FPSLabel.Size = UDim2.new(0, 120, 0, 20)
+FPSLabel.Position = UDim2.new(0, 5, 0, 5)
+FPSLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+FPSLabel.BackgroundTransparency = 0.5
+FPSLabel.BorderSizePixel = 0
+FPSLabel.Font = Enum.Font.GothamBold
+FPSLabel.Text = "FPS: -- | Ping: --"
+FPSLabel.TextColor3 = Color3.fromRGB(255, 60, 60)
+FPSLabel.TextScaled = true
+FPSLabel.Visible = false
+local FPSCorner = Instance.new("UICorner")
+FPSCorner.CornerRadius = UDim.new(0, 4)
+FPSCorner.Parent = FPSLabel
+
+-- Crosshair
+local CrosshairFrame = Instance.new("Frame")
+CrosshairFrame.Parent = MeeHub
+CrosshairFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+CrosshairFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+CrosshairFrame.Size = UDim2.new(0, 20, 0, 20)
+CrosshairFrame.BackgroundTransparency = 1
+CrosshairFrame.Visible = false
+
+for _, data in ipairs({
+	{UDim2.new(0.5, -1, 0, 0), UDim2.new(0, 2, 0.4, 0)}, -- top
+	{UDim2.new(0.5, -1, 0.6, 0), UDim2.new(0, 2, 0.4, 0)}, -- bottom
+	{UDim2.new(0, 0, 0.5, -1), UDim2.new(0.4, 0, 0, 2)}, -- left
+	{UDim2.new(0.6, 0, 0.5, -1), UDim2.new(0.4, 0, 0, 2)}, -- right
+}) do
+	local line = Instance.new("Frame")
+	line.Parent = CrosshairFrame
+	line.Position = data[1]
+	line.Size = data[2]
+	line.BackgroundColor3 = Color3.fromRGB(255, 30, 30)
+	line.BorderSizePixel = 0
+end
+
+--------------------------------------------------------------
+-- STATE VARIABLES
+--------------------------------------------------------------
+local Pages = {Page1, Page2, Page3, Page4}
+local CurrentPage = 1
+local IsGuiVisible = true
+local IsUiClosed = false
+
+-- Toggle states
+local State = {
+	PlayerESP = false,
+	HealthBar = false,
+	Tracers = false,
+	AimAssist = false,
+	AimFOV = 90,
+	SilentAim = false,
+	AutoParry = false,
+	KillAura = false,
+	Hitbox = false,
+	HitboxSize = 10,
+	NoRecoil = false,
+	NoSpread = false,
+	RapidFire = false,
+	InfAmmo = false,
+	AutoShoot = false,
+	InstantKill = false,
+	Speed = false,
+	SpeedMult = 2,
+	Fly = false,
+	FlySpeed = 60,
+	Noclip = false,
+	InfDash = false,
+	AutoBHop = false,
+	InfGrapple = false,
+	JumpPower = 50,
+	LowGravity = false,
+	InfHealth = false,
+	Invisible = false,
+	FullBright = false,
+	NoFog = false,
+	NightMode = false,
+	FOV = 70,
+	ThirdPerson = false,
+	Freecam = false,
+	Chams = false,
+	ChamsColorIndex = 1,
+	BoxESP = false,
+	NoParticles = false,
+	Crosshair = false,
+	HitMarker = false,
+	AntiAFK = false,
+	AntiSlow = false,
+	AntiVoid = false,
+	FPSDisplay = false,
+	PingDisplay = false,
+	LagReduce = false,
+	ChatSpam = false,
+}
+
+local ChamsColors = {
+	Color3.fromRGB(255, 0, 0),
+	Color3.fromRGB(0, 255, 0),
+	Color3.fromRGB(0, 100, 255),
+	Color3.fromRGB(255, 255, 0),
+	Color3.fromRGB(255, 0, 255),
+	Color3.fromRGB(255, 255, 255),
+}
+local ChamsColorNames = {"Red", "Green", "Blue", "Yellow", "Purple", "White"}
+
+-- Connection storage
+local Connections = {}
+local ESPObjects = {}
+local TracerLines = {}
+local ChamsObjects = {}
+
+-- Lighting backup
+local OldLighting = {
+	Ambient = Lighting.Ambient,
+	OutdoorAmbient = Lighting.OutdoorAmbient,
+	Brightness = Lighting.Brightness,
+	FogEnd = Lighting.FogEnd,
+	GlobalShadows = Lighting.GlobalShadows,
+}
+
+--------------------------------------------------------------
+-- TAB SWITCHING
+--------------------------------------------------------------
+local function SwitchTab(pageNum)
+	CurrentPage = pageNum
+	for i, page in ipairs(Pages) do
+		page.Visible = (i == pageNum)
+		tabButtons[i].BackgroundColor3 = (i == pageNum) and Color3.fromRGB(138, 43, 226) or Color3.fromRGB(35, 35, 45)
+		tabButtons[i].BackgroundTransparency = (i == pageNum) and 0 or 0.3
+	end
+end
+
+for i, tab in ipairs(tabButtons) do
+	tab.MouseButton1Click:Connect(function() SwitchTab(i) end)
+end
+
+--------------------------------------------------------------
+-- UTILITY FUNCTIONS
+--------------------------------------------------------------
+local function GetEnemies()
+	local enemies = {}
+	for _, p in pairs(Players:GetPlayers()) do
+		if p ~= plr and p.Character and p.Character:FindFirstChild("HumanoidRootPart") and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
+			table.insert(enemies, p)
+		end
+	end
+	return enemies
+end
+
+local function GetClosestEnemy(maxDist)
+	maxDist = maxDist or math.huge
+	local closest, closestDist = nil, maxDist
+	local myChar = plr.Character
+	if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return nil end
+	local myPos = myChar.HumanoidRootPart.Position
+
+	for _, p in pairs(GetEnemies()) do
+		local dist = (p.Character.HumanoidRootPart.Position - myPos).Magnitude
+		if dist < closestDist then
+			closest = p
+			closestDist = dist
+		end
+	end
+	return closest, closestDist
+end
+
+local function GetClosestEnemyToMouse(fov)
+	local closest, closestDist = nil, fov or 200
+	for _, p in pairs(GetEnemies()) do
+		local hrp = p.Character.HumanoidRootPart
+		local screenPos, onScreen = Camera:WorldToScreenPoint(hrp.Position)
+		if onScreen then
+			local mousePos = Vector2.new(mouse.X, mouse.Y)
+			local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+			if dist < closestDist then
+				closest = p
+				closestDist = dist
+			end
+		end
+	end
+	return closest
+end
+
+local function Notify(title, text, duration)
+	StarterGui:SetCore("SendNotification", {
+		Title = title, Text = text, Duration = duration or 3
+	})
+end
+
+--------------------------------------------------------------
+-- FEATURE IMPLEMENTATIONS
+--------------------------------------------------------------
+
+-- ===== PLAYER ESP =====
+local function ClearESP()
+	for _, obj in pairs(ESPObjects) do pcall(function() obj:Destroy() end) end
+	ESPObjects = {}
+end
+
+local function CreateESPForPlayer(p)
+	if not p.Character or not p.Character:FindFirstChild("HumanoidRootPart") then return end
+	local hrp = p.Character.HumanoidRootPart
+
+	-- Name Billboard
+	local bb = Instance.new("BillboardGui")
+	bb.Name = "RLHUB_ESP"
+	bb.Parent = game:GetService("CoreGui")
+	bb.Adornee = hrp
+	bb.AlwaysOnTop = true
+	bb.Size = UDim2.new(0, 120, 0, 40)
+	bb.StudsOffset = Vector3.new(0, 3, 0)
+	bb.LightInfluence = 0
+
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Parent = bb
+	nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Font = Enum.Font.GothamBold
+	nameLabel.Text = p.DisplayName
+	nameLabel.TextColor3 = Color3.fromRGB(255, 60, 60)
+	nameLabel.TextScaled = true
+	nameLabel.TextStrokeTransparency = 0
+
+	local distLabel = Instance.new("TextLabel")
+	distLabel.Name = "DistLabel"
+	distLabel.Parent = bb
+	distLabel.Size = UDim2.new(1, 0, 0.5, 0)
+	distLabel.Position = UDim2.new(0, 0, 0.5, 0)
+	distLabel.BackgroundTransparency = 1
+	distLabel.Font = Enum.Font.Gotham
+	distLabel.Text = "0m"
+	distLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+	distLabel.TextScaled = true
+	distLabel.TextStrokeTransparency = 0
+
+	table.insert(ESPObjects, bb)
+
+	-- Highlight
+	local hl = Instance.new("Highlight")
+	hl.Name = "RLHUB_HL"
+	hl.Parent = p.Character
+	hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	hl.FillColor = Color3.fromRGB(255, 30, 30)
+	hl.FillTransparency = 0.7
+	hl.OutlineColor = Color3.fromRGB(255, 60, 60)
+	hl.OutlineTransparency = 0
+	table.insert(ESPObjects, hl)
+
+	-- Health bar
+	if State.HealthBar then
+		local hbb = Instance.new("BillboardGui")
+		hbb.Name = "RLHUB_HP"
+		hbb.Parent = game:GetService("CoreGui")
+		hbb.Adornee = hrp
+		hbb.AlwaysOnTop = true
+		hbb.Size = UDim2.new(0, 60, 0, 8)
+		hbb.StudsOffset = Vector3.new(0, 4.5, 0)
+		hbb.LightInfluence = 0
+
+		local bgBar = Instance.new("Frame")
+		bgBar.Parent = hbb
+		bgBar.Size = UDim2.new(1, 0, 1, 0)
+		bgBar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+		bgBar.BorderSizePixel = 0
+		local bgCorner = Instance.new("UICorner")
+		bgCorner.CornerRadius = UDim.new(0, 3)
+		bgCorner.Parent = bgBar
+
+		local hpBar = Instance.new("Frame")
+		hpBar.Name = "HPFill"
+		hpBar.Parent = bgBar
+		hpBar.Size = UDim2.new(1, 0, 1, 0)
+		hpBar.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+		hpBar.BorderSizePixel = 0
+		local hpCorner = Instance.new("UICorner")
+		hpCorner.CornerRadius = UDim.new(0, 3)
+		hpCorner.Parent = hpBar
+
+		table.insert(ESPObjects, hbb)
+	end
+end
+
+local function UpdateESP()
+	ClearESP()
+	if not State.PlayerESP then return end
+	for _, p in pairs(GetEnemies()) do
+		CreateESPForPlayer(p)
+	end
+end
+
+-- ===== CHAMS =====
+local function ClearChams()
+	for _, obj in pairs(ChamsObjects) do pcall(function() obj:Destroy() end) end
+	ChamsObjects = {}
+end
+
+local function UpdateChams()
+	ClearChams()
+	if not State.Chams then return end
+	for _, p in pairs(GetEnemies()) do
+		if p.Character then
+			local hl = Instance.new("Highlight")
+			hl.Name = "RLHUB_CHAMS"
+			hl.Parent = p.Character
+			hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+			hl.FillColor = ChamsColors[State.ChamsColorIndex]
+			hl.FillTransparency = 0.4
+			hl.OutlineColor = ChamsColors[State.ChamsColorIndex]
+			hl.OutlineTransparency = 0
+			table.insert(ChamsObjects, hl)
+		end
+	end
+end
+
+-- ===== HITBOX EXPANDER =====
+local function UpdateHitbox()
+	for _, p in pairs(Players:GetPlayers()) do
+		if p ~= plr and p.Character then
+			local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+			if hrp then
+				if State.Hitbox then
+					hrp.Size = Vector3.new(State.HitboxSize, State.HitboxSize, State.HitboxSize)
+					hrp.Transparency = 0.7
+					hrp.Color = Color3.fromRGB(255, 0, 0)
+					hrp.CanCollide = false
+				else
+					hrp.Size = Vector3.new(2, 2, 1)
+					hrp.Transparency = 1
+				end
+			end
+		end
+	end
+end
+
+--------------------------------------------------------------
+-- BUTTON CLICK HANDLERS
+--------------------------------------------------------------
+
+-- === PAGE 1: COMBAT ===
+PlayerESPBtn.MouseButton1Click:Connect(function()
+	State.PlayerESP = not State.PlayerESP
+	if State.PlayerESP then SetBtnOn(PlayerESPBtn) PlayerESPBtn.Text = "Player ESP: ON" else SetBtnOff(PlayerESPBtn) PlayerESPBtn.Text = "Player ESP: OFF" end
+	UpdateESP()
+end)
+
+HealthBarBtn.MouseButton1Click:Connect(function()
+	State.HealthBar = not State.HealthBar
+	if State.HealthBar then SetBtnOn(HealthBarBtn) HealthBarBtn.Text = "Health Bars: ON" else SetBtnOff(HealthBarBtn) HealthBarBtn.Text = "Health Bars: OFF" end
+	UpdateESP()
+end)
+
+TracersBtn.MouseButton1Click:Connect(function()
+	State.Tracers = not State.Tracers
+	if State.Tracers then SetBtnOn(TracersBtn) TracersBtn.Text = "Tracers: ON" else SetBtnOff(TracersBtn) TracersBtn.Text = "Tracers: OFF" end
+end)
+
+AimAssistBtn.MouseButton1Click:Connect(function()
+	State.AimAssist = not State.AimAssist
+	if State.AimAssist then SetBtnOn(AimAssistBtn) AimAssistBtn.Text = "Aim Assist: ON" else SetBtnOff(AimAssistBtn) AimAssistBtn.Text = "Aim Assist: OFF" end
+end)
+
+AimFOVBtn.MouseButton1Click:Connect(function()
+	State.AimFOV = State.AimFOV + 30
+	if State.AimFOV > 300 then State.AimFOV = 30 end
+	AimFOVBtn.Text = "Aim FOV: " .. State.AimFOV
+end)
+
+SilentAimBtn.MouseButton1Click:Connect(function()
+	State.SilentAim = not State.SilentAim
+	if State.SilentAim then SetBtnOn(SilentAimBtn) SilentAimBtn.Text = "Silent Aim: ON" else SetBtnOff(SilentAimBtn) SilentAimBtn.Text = "Silent Aim: OFF" end
+end)
+
+AutoParryBtn.MouseButton1Click:Connect(function()
+	State.AutoParry = not State.AutoParry
+	if State.AutoParry then
+		SetBtnOn(AutoParryBtn) AutoParryBtn.Text = "Auto Parry: ON"
+		Notify("Auto Parry", "Auto parry enabled! Will attempt to parry incoming attacks.", 3)
+	else
+		SetBtnOff(AutoParryBtn) AutoParryBtn.Text = "Auto Parry: OFF"
+	end
+end)
+
+KillAuraBtn.MouseButton1Click:Connect(function()
+	State.KillAura = not State.KillAura
+	if State.KillAura then SetBtnOn(KillAuraBtn) KillAuraBtn.Text = "Kill Aura: ON" else SetBtnOff(KillAuraBtn) KillAuraBtn.Text = "Kill Aura: OFF" end
+end)
+
+HitboxBtn.MouseButton1Click:Connect(function()
+	State.Hitbox = not State.Hitbox
+	if State.Hitbox then
+		SetBtnOn(HitboxBtn) HitboxBtn.Text = "Hitbox: ON (10)"
+	else
+		SetBtnOff(HitboxBtn) HitboxBtn.Text = "Hitbox Expand: OFF"
+	end
+	UpdateHitbox()
+end)
+
+NoRecoilBtn.MouseButton1Click:Connect(function()
+	State.NoRecoil = not State.NoRecoil
+	if State.NoRecoil then SetBtnOn(NoRecoilBtn) NoRecoilBtn.Text = "No Recoil: ON" else SetBtnOff(NoRecoilBtn) NoRecoilBtn.Text = "No Recoil: OFF" end
+end)
+
+NoSpreadBtn.MouseButton1Click:Connect(function()
+	State.NoSpread = not State.NoSpread
+	if State.NoSpread then SetBtnOn(NoSpreadBtn) NoSpreadBtn.Text = "No Spread: ON" else SetBtnOff(NoSpreadBtn) NoSpreadBtn.Text = "No Spread: OFF" end
+end)
+
+RapidFireBtn.MouseButton1Click:Connect(function()
+	State.RapidFire = not State.RapidFire
+	if State.RapidFire then SetBtnOn(RapidFireBtn) RapidFireBtn.Text = "Rapid Fire: ON" else SetBtnOff(RapidFireBtn) RapidFireBtn.Text = "Rapid Fire: OFF" end
+end)
+
+InfAmmoBtn.MouseButton1Click:Connect(function()
+	State.InfAmmo = not State.InfAmmo
+	if State.InfAmmo then SetBtnOn(InfAmmoBtn) InfAmmoBtn.Text = "Inf Ammo: ON" else SetBtnOff(InfAmmoBtn) InfAmmoBtn.Text = "Inf Ammo: OFF" end
+end)
+
+AutoShootBtn.MouseButton1Click:Connect(function()
+	State.AutoShoot = not State.AutoShoot
+	if State.AutoShoot then SetBtnOn(AutoShootBtn) AutoShootBtn.Text = "Auto Shoot: ON" else SetBtnOff(AutoShootBtn) AutoShootBtn.Text = "Auto Shoot: OFF" end
+end)
+
+InstantKillBtn.MouseButton1Click:Connect(function()
+	State.InstantKill = not State.InstantKill
+	if State.InstantKill then SetBtnOn(InstantKillBtn) InstantKillBtn.Text = "Instant Kill: ON" else SetBtnOff(InstantKillBtn) InstantKillBtn.Text = "Instant Kill: OFF" end
+end)
+
+-- === PAGE 2: MOVEMENT ===
+local FlyBV, FlyBG = nil, nil
+SpeedBtn.MouseButton1Click:Connect(function()
+	State.Speed = not State.Speed
+	if State.Speed then
+		SetBtnOn(SpeedBtn) SpeedBtn.Text = "Speed: ON (x" .. State.SpeedMult .. ")"
+	else
+		SetBtnOff(SpeedBtn) SpeedBtn.Text = "Speed: OFF (x" .. State.SpeedMult .. ")"
+		if plr.Character and plr.Character:FindFirstChild("Humanoid") then plr.Character.Humanoid.WalkSpeed = 16 end
+	end
+end)
+
+SpeedMultBtn.MouseButton1Click:Connect(function()
+	State.SpeedMult = State.SpeedMult + 1
+	if State.SpeedMult > 10 then State.SpeedMult = 1 end
+	SpeedMultBtn.Text = "Speed: x" .. State.SpeedMult
+	if State.Speed then SpeedBtn.Text = "Speed: ON (x" .. State.SpeedMult .. ")" end
+end)
+
+FlyMoveBtn.MouseButton1Click:Connect(function()
+	State.Fly = not State.Fly
+	if State.Fly then
+		SetBtnOn(FlyMoveBtn) FlyMoveBtn.Text = "Fly: ON"
+		local char = plr.Character
+		if char and char:FindFirstChild("HumanoidRootPart") then
+			FlyBV = Instance.new("BodyVelocity")
+			FlyBV.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+			FlyBV.Velocity = Vector3.zero
+			FlyBV.Parent = char.HumanoidRootPart
+			FlyBG = Instance.new("BodyGyro")
+			FlyBG.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+			FlyBG.P = 9e4
+			FlyBG.Parent = char.HumanoidRootPart
+		end
+	else
+		SetBtnOff(FlyMoveBtn) FlyMoveBtn.Text = "Fly: OFF"
+		if FlyBV then FlyBV:Destroy() FlyBV = nil end
+		if FlyBG then FlyBG:Destroy() FlyBG = nil end
+	end
+end)
+
+NoclipMoveBtn.MouseButton1Click:Connect(function()
+	State.Noclip = not State.Noclip
+	if State.Noclip then SetBtnOn(NoclipMoveBtn) NoclipMoveBtn.Text = "Noclip: ON" else SetBtnOff(NoclipMoveBtn) NoclipMoveBtn.Text = "Noclip: OFF" end
+end)
+
+InfDashBtn.MouseButton1Click:Connect(function()
+	State.InfDash = not State.InfDash
+	if State.InfDash then SetBtnOn(InfDashBtn) InfDashBtn.Text = "Inf Dash: ON" else SetBtnOff(InfDashBtn) InfDashBtn.Text = "Inf Dash: OFF" end
+end)
+
+AutoBHopBtn.MouseButton1Click:Connect(function()
+	State.AutoBHop = not State.AutoBHop
+	if State.AutoBHop then SetBtnOn(AutoBHopBtn) AutoBHopBtn.Text = "Auto BHop: ON" else SetBtnOff(AutoBHopBtn) AutoBHopBtn.Text = "Auto BHop: OFF" end
+end)
+
+InfGrappleBtn.MouseButton1Click:Connect(function()
+	State.InfGrapple = not State.InfGrapple
+	if State.InfGrapple then SetBtnOn(InfGrappleBtn) InfGrappleBtn.Text = "Inf Grapple: ON" else SetBtnOff(InfGrappleBtn) InfGrappleBtn.Text = "Inf Grapple: OFF" end
+end)
+
+JumpPwrBtn.MouseButton1Click:Connect(function()
+	State.JumpPower = State.JumpPower + 25
+	if State.JumpPower > 200 then State.JumpPower = 50 end
+	JumpPwrBtn.Text = "Jump: " .. State.JumpPower
+	if plr.Character and plr.Character:FindFirstChild("Humanoid") then
+		plr.Character.Humanoid.JumpPower = State.JumpPower
+		plr.Character.Humanoid.UseJumpPower = true
+	end
+end)
+
+GravityBtn.MouseButton1Click:Connect(function()
+	State.LowGravity = not State.LowGravity
+	if State.LowGravity then
+		SetBtnOn(GravityBtn) GravityBtn.Text = "Low Gravity: ON"
+		workspace.Gravity = 80
+	else
+		SetBtnOff(GravityBtn) GravityBtn.Text = "Low Gravity: OFF"
+		workspace.Gravity = 196.2
+	end
+end)
+
+TpClosestBtn.MouseButton1Click:Connect(function()
+	local enemy = GetClosestEnemy()
+	if enemy and enemy.Character and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+		plr.Character.HumanoidRootPart.CFrame = enemy.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, 5)
+		Notify("Teleported", "TP to: " .. enemy.DisplayName, 2)
+	else
+		Notify("Teleport", "No enemies found!", 2)
+	end
+end)
+
+TpBehindBtn.MouseButton1Click:Connect(function()
+	local enemy = GetClosestEnemy()
+	if enemy and enemy.Character and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+		plr.Character.HumanoidRootPart.CFrame = enemy.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, -5)
+		Notify("Teleported", "TP behind: " .. enemy.DisplayName, 2)
+	end
+end)
+
+TpSpawnBtn.MouseButton1Click:Connect(function()
+	pcall(function()
+		plr.Character.HumanoidRootPart.CFrame = CFrame.new(0, 50, 0)
+		Notify("Teleported", "TP to spawn area", 2)
+	end)
+end)
+
+InfHealthBtn.MouseButton1Click:Connect(function()
+	State.InfHealth = not State.InfHealth
+	if State.InfHealth then SetBtnOn(InfHealthBtn) InfHealthBtn.Text = "Inf Health: ON" else SetBtnOff(InfHealthBtn) InfHealthBtn.Text = "Inf Health: OFF" end
+end)
+
+InvisBtn.MouseButton1Click:Connect(function()
+	State.Invisible = not State.Invisible
+	if State.Invisible then
+		SetBtnOn(InvisBtn) InvisBtn.Text = "Invisible: ON"
+		if plr.Character then
+			for _, p in pairs(plr.Character:GetDescendants()) do
+				if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then p.Transparency = 1
+				elseif p:IsA("Decal") then p.Transparency = 1 end
+			end
+		end
+	else
+		SetBtnOff(InvisBtn) InvisBtn.Text = "Invisible: OFF"
+		if plr.Character then
+			for _, p in pairs(plr.Character:GetDescendants()) do
+				if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then p.Transparency = 0
+				elseif p:IsA("Decal") then p.Transparency = 0 end
+			end
+		end
+	end
+end)
+
+SmallCharBtn.MouseButton1Click:Connect(function()
+	pcall(function()
+		if plr.Character and plr.Character:FindFirstChild("Humanoid") then
+			local hd = plr.Character.Humanoid:FindFirstChild("HeadScale") or plr.Character.Humanoid:WaitForChild("HeadScale", 1)
+			local bd = plr.Character.Humanoid:FindFirstChild("BodyDepthScale") or plr.Character.Humanoid:WaitForChild("BodyDepthScale", 1)
+			local bw = plr.Character.Humanoid:FindFirstChild("BodyWidthScale") or plr.Character.Humanoid:WaitForChild("BodyWidthScale", 1)
+			local bh = plr.Character.Humanoid:FindFirstChild("BodyHeightScale") or plr.Character.Humanoid:WaitForChild("BodyHeightScale", 1)
+			if hd then hd.Value = hd.Value == 0.5 and 1 or 0.5 end
+			if bd then bd.Value = bd.Value == 0.5 and 1 or 0.5 end
+			if bw then bw.Value = bw.Value == 0.5 and 1 or 0.5 end
+			if bh then bh.Value = bh.Value == 0.5 and 1 or 0.5 end
+		end
+	end)
+end)
+
+-- === PAGE 3: VISUALS ===
+FullBrightBtn.MouseButton1Click:Connect(function()
+	State.FullBright = not State.FullBright
+	if State.FullBright then
+		SetBtnOn(FullBrightBtn) FullBrightBtn.Text = "Full Bright: ON"
+		Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+		Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+		Lighting.Brightness = 2
+		Lighting.GlobalShadows = false
+		Lighting.FogEnd = 1e6
+	else
+		SetBtnOff(FullBrightBtn) FullBrightBtn.Text = "Full Bright: OFF"
+		Lighting.Ambient = OldLighting.Ambient
+		Lighting.OutdoorAmbient = OldLighting.OutdoorAmbient
+		Lighting.Brightness = OldLighting.Brightness
+		Lighting.GlobalShadows = OldLighting.GlobalShadows
+		Lighting.FogEnd = OldLighting.FogEnd
+	end
+end)
+
+NoFogBtn.MouseButton1Click:Connect(function()
+	State.NoFog = not State.NoFog
+	if State.NoFog then SetBtnOn(NoFogBtn) NoFogBtn.Text = "No Fog: ON" Lighting.FogEnd = 1e9 else SetBtnOff(NoFogBtn) NoFogBtn.Text = "No Fog: OFF" Lighting.FogEnd = OldLighting.FogEnd end
+end)
+
+NightModeBtn.MouseButton1Click:Connect(function()
+	State.NightMode = not State.NightMode
+	if State.NightMode then
+		SetBtnOn(NightModeBtn) NightModeBtn.Text = "Night Mode: ON"
+		Lighting.Ambient = Color3.fromRGB(0, 0, 30)
+		Lighting.Brightness = 0
+	else
+		SetBtnOff(NightModeBtn) NightModeBtn.Text = "Night Mode: OFF"
+		Lighting.Ambient = OldLighting.Ambient
+		Lighting.Brightness = OldLighting.Brightness
+	end
+end)
+
+FOVBtn.MouseButton1Click:Connect(function()
+	State.FOV = State.FOV + 10
+	if State.FOV > 120 then State.FOV = 40 end
+	Camera.FieldOfView = State.FOV
+	FOVBtn.Text = "FOV: " .. State.FOV
+end)
+
+local OldCamType = nil
+ThirdPersonBtn.MouseButton1Click:Connect(function()
+	State.ThirdPerson = not State.ThirdPerson
+	if State.ThirdPerson then
+		SetBtnOn(ThirdPersonBtn) ThirdPersonBtn.Text = "3rd Person: ON"
+		plr.CameraMinZoomDistance = 15
+		plr.CameraMaxZoomDistance = 30
+	else
+		SetBtnOff(ThirdPersonBtn) ThirdPersonBtn.Text = "3rd Person: OFF"
+		plr.CameraMinZoomDistance = 0.5
+		plr.CameraMaxZoomDistance = 400
+	end
+end)
+
+FreecamMoveBtn.MouseButton1Click:Connect(function()
+	State.Freecam = not State.Freecam
+	if State.Freecam then
+		SetBtnOn(FreecamMoveBtn) FreecamMoveBtn.Text = "Freecam: ON"
+		OldCamType = Camera.CameraType
+		Camera.CameraType = Enum.CameraType.Scriptable
+	else
+		SetBtnOff(FreecamMoveBtn) FreecamMoveBtn.Text = "Freecam: OFF"
+		Camera.CameraType = OldCamType or Enum.CameraType.Custom
+	end
+end)
+
+ChamsBtn.MouseButton1Click:Connect(function()
+	State.Chams = not State.Chams
+	if State.Chams then SetBtnOn(ChamsBtn) ChamsBtn.Text = "Chams: ON" else SetBtnOff(ChamsBtn) ChamsBtn.Text = "Chams: OFF" end
+	UpdateChams()
+end)
+
+ChamsColorBtn.MouseButton1Click:Connect(function()
+	State.ChamsColorIndex = State.ChamsColorIndex + 1
+	if State.ChamsColorIndex > #ChamsColors then State.ChamsColorIndex = 1 end
+	ChamsColorBtn.Text = "Color: " .. ChamsColorNames[State.ChamsColorIndex]
+	ChamsColorBtn.TextColor3 = ChamsColors[State.ChamsColorIndex]
+	if State.Chams then UpdateChams() end
+end)
+
+BoxESPBtn.MouseButton1Click:Connect(function()
+	State.BoxESP = not State.BoxESP
+	if State.BoxESP then SetBtnOn(BoxESPBtn) BoxESPBtn.Text = "Box ESP: ON" else SetBtnOff(BoxESPBtn) BoxESPBtn.Text = "Box ESP: OFF" end
+end)
+
+NoParticlesBtn.MouseButton1Click:Connect(function()
+	State.NoParticles = not State.NoParticles
+	if State.NoParticles then
+		SetBtnOn(NoParticlesBtn) NoParticlesBtn.Text = "No Particles: ON"
+		for _, v in pairs(workspace:GetDescendants()) do
+			if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") then v.Enabled = false end
+		end
+	else
+		SetBtnOff(NoParticlesBtn) NoParticlesBtn.Text = "No Particles: OFF"
+		for _, v in pairs(workspace:GetDescendants()) do
+			if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") then v.Enabled = true end
+		end
+	end
+end)
+
+CrosshairBtn.MouseButton1Click:Connect(function()
+	State.Crosshair = not State.Crosshair
+	CrosshairFrame.Visible = State.Crosshair
+	if State.Crosshair then SetBtnOn(CrosshairBtn) CrosshairBtn.Text = "Crosshair: ON" else SetBtnOff(CrosshairBtn) CrosshairBtn.Text = "Crosshair: OFF" end
+end)
+
+HitMarkerBtn.MouseButton1Click:Connect(function()
+	State.HitMarker = not State.HitMarker
+	if State.HitMarker then SetBtnOn(HitMarkerBtn) HitMarkerBtn.Text = "Hit Marker: ON" else SetBtnOff(HitMarkerBtn) HitMarkerBtn.Text = "Hit Marker: OFF" end
+end)
+
+-- === PAGE 4: UTILITY ===
+AntiAFKBtn.MouseButton1Click:Connect(function()
+	State.AntiAFK = not State.AntiAFK
+	if State.AntiAFK then
+		SetBtnOn(AntiAFKBtn) AntiAFKBtn.Text = "Anti-AFK: ON"
+		pcall(function()
+			local VU = game:GetService("VirtualUser")
+			plr.Idled:Connect(function() VU:CaptureController() VU:ClickButton2(Vector2.new()) end)
+		end)
+		Notify("Anti-AFK", "You won't be kicked for idling!", 3)
+	else
+		SetBtnOff(AntiAFKBtn) AntiAFKBtn.Text = "Anti-AFK: OFF"
+	end
+end)
+
+AntiSlowBtn.MouseButton1Click:Connect(function()
+	State.AntiSlow = not State.AntiSlow
+	if State.AntiSlow then SetBtnOn(AntiSlowBtn) AntiSlowBtn.Text = "Anti-Slow: ON" else SetBtnOff(AntiSlowBtn) AntiSlowBtn.Text = "Anti-Slow: OFF" end
+end)
+
+AntiVoidBtn.MouseButton1Click:Connect(function()
+	State.AntiVoid = not State.AntiVoid
+	if State.AntiVoid then SetBtnOn(AntiVoidBtn) AntiVoidBtn.Text = "Anti-Void: ON" else SetBtnOff(AntiVoidBtn) AntiVoidBtn.Text = "Anti-Void: OFF" end
+end)
+
+ServerHopBtn.MouseButton1Click:Connect(function()
+	Notify("Server Hop", "Finding new server...", 3)
+	pcall(function() game:GetService("TeleportService"):Teleport(game.PlaceId, plr) end)
+end)
+
+RejoinBtn.MouseButton1Click:Connect(function()
+	Notify("Rejoin", "Rejoining same server...", 3)
+	task.wait(1)
+	pcall(function() game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, plr) end)
+end)
+
+CopyJobBtn.MouseButton1Click:Connect(function()
+	pcall(function()
+		local cf = setclipboard or toclipboard or set_clipboard
+		if cf then cf(game.JobId) Notify("Copied", "JobId: " .. game.JobId, 3) end
+	end)
+end)
+
+FPSDisplayBtn.MouseButton1Click:Connect(function()
+	State.FPSDisplay = not State.FPSDisplay
+	FPSLabel.Visible = State.FPSDisplay
+	if State.FPSDisplay then SetBtnOn(FPSDisplayBtn) FPSDisplayBtn.Text = "FPS Display: ON" else SetBtnOff(FPSDisplayBtn) FPSDisplayBtn.Text = "FPS Display: OFF" end
+end)
+
+PingDisplayBtn.MouseButton1Click:Connect(function()
+	State.PingDisplay = not State.PingDisplay
+	if State.PingDisplay then SetBtnOn(PingDisplayBtn) PingDisplayBtn.Text = "Ping Display: ON" else SetBtnOff(PingDisplayBtn) PingDisplayBtn.Text = "Ping Display: OFF" end
+end)
+
+LagReduceBtn.MouseButton1Click:Connect(function()
+	State.LagReduce = not State.LagReduce
+	if State.LagReduce then
+		SetBtnOn(LagReduceBtn) LagReduceBtn.Text = "Reduce Lag: ON"
+		settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+		for _, v in pairs(workspace:GetDescendants()) do
+			if v:IsA("ParticleEmitter") or v:IsA("Trail") then v.Enabled = false end
+			if v:IsA("MeshPart") or v:IsA("UnionOperation") then v.RenderFidelity = Enum.RenderFidelity.Performance end
+		end
+		Notify("Performance", "Graphics reduced for better FPS", 3)
+	else
+		SetBtnOff(LagReduceBtn) LagReduceBtn.Text = "Reduce Lag: OFF"
+		settings().Rendering.QualityLevel = Enum.QualityLevel.Automatic
+	end
+end)
+
+InfYieldBtn.MouseButton1Click:Connect(function()
+	Notify("Loading", "Loading Infinite Yield...", 3)
+	pcall(function()
+		loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
+	end)
+end)
+
+ChatSpamBtn.MouseButton1Click:Connect(function()
+	State.ChatSpam = not State.ChatSpam
+	if State.ChatSpam then
+		SetBtnOn(ChatSpamBtn) ChatSpamBtn.Text = "Chat Spam: ON"
+		task.spawn(function()
+			local msgs = {"GG!", "Nice shot!", "MeeHub on TOP!", "ez parry", "too fast"}
+			while State.ChatSpam do
+				pcall(function()
+					game:GetService("ReplicatedStorage"):WaitForChild("DefaultChatSystemChatEvents"):WaitForChild("SayMessageRequest"):FireServer(msgs[math.random(#msgs)], "All")
+				end)
+				task.wait(3)
+			end
+		end)
+	else
+		SetBtnOff(ChatSpamBtn) ChatSpamBtn.Text = "Chat Spam: OFF"
+	end
+end)
+
+RespawnBtn.MouseButton1Click:Connect(function()
+	pcall(function()
+		plr.Character:BreakJoints()
+		Notify("Respawn", "Force respawned!", 2)
+	end)
+end)
+
+--------------------------------------------------------------
+-- MAIN LOOP (Heartbeat)
+--------------------------------------------------------------
+Connections.MainLoop = RS.Heartbeat:Connect(function()
+	if IsUiClosed then return end
+	pcall(function()
+		local char = plr.Character
+		if not char then return end
+		local humanoid = char:FindFirstChild("Humanoid")
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+
+		-- Speed
+		if State.Speed and humanoid then
+			humanoid.WalkSpeed = 16 * State.SpeedMult
+		end
+
+		-- Fly
+		if State.Fly and FlyBV and FlyBG and hrp then
+			local cam = Camera
+			FlyBG.CFrame = cam.CFrame
+			local dir = Vector3.zero
+			if UIS:IsKeyDown(Enum.KeyCode.W) then dir = dir + cam.CFrame.LookVector end
+			if UIS:IsKeyDown(Enum.KeyCode.S) then dir = dir - cam.CFrame.LookVector end
+			if UIS:IsKeyDown(Enum.KeyCode.A) then dir = dir - cam.CFrame.RightVector end
+			if UIS:IsKeyDown(Enum.KeyCode.D) then dir = dir + cam.CFrame.RightVector end
+			if UIS:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0, 1, 0) end
+			if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then dir = dir - Vector3.new(0, 1, 0) end
+			FlyBV.Velocity = dir.Magnitude > 0 and dir.Unit * State.FlySpeed or Vector3.zero
+		end
+
+		-- Noclip
+		if State.Noclip and char then
+			for _, p in pairs(char:GetDescendants()) do
+				if p:IsA("BasePart") then p.CanCollide = false end
+			end
+		end
+
+		-- Inf Health
+		if State.InfHealth and humanoid then
+			humanoid.Health = humanoid.MaxHealth
+		end
+
+		-- Anti-Slow
+		if State.AntiSlow and humanoid then
+			if humanoid.WalkSpeed < 16 then humanoid.WalkSpeed = 16 end
+		end
+
+		-- Anti-Void
+		if State.AntiVoid and hrp then
+			if hrp.Position.Y < -50 then
+				hrp.CFrame = CFrame.new(0, 50, 0)
+			end
+		end
+
+		-- Auto BHop
+		if State.AutoBHop and humanoid then
+			if humanoid.MoveDirection.Magnitude > 0 then
+				humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+			end
+		end
+
+		-- Freecam movement
+		if State.Freecam then
+			local cam = Camera
+			local dir = Vector3.zero
+			local speed = 30
+			if UIS:IsKeyDown(Enum.KeyCode.W) then dir = dir + cam.CFrame.LookVector end
+			if UIS:IsKeyDown(Enum.KeyCode.S) then dir = dir - cam.CFrame.LookVector end
+			if UIS:IsKeyDown(Enum.KeyCode.A) then dir = dir - cam.CFrame.RightVector end
+			if UIS:IsKeyDown(Enum.KeyCode.D) then dir = dir + cam.CFrame.RightVector end
+			if UIS:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0, 1, 0) end
+			if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then dir = dir - Vector3.new(0, 1, 0) end
+			if dir.Magnitude > 0 then cam.CFrame = cam.CFrame + dir.Unit * speed * 0.016 end
+		end
+
+		-- Aim Assist
+		if State.AimAssist and UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+			local target = GetClosestEnemyToMouse(State.AimFOV)
+			if target and target.Character and target.Character:FindFirstChild("Head") then
+				local head = target.Character.Head
+				local targetCFrame = CFrame.lookAt(Camera.CFrame.Position, head.Position)
+				-- Lerp for smoothness instead of instant snapping (0.5 is smoothness factor)
+				Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, 0.5)
+			end
+		end
+
+		-- Update ESP distances
+		if State.PlayerESP and hrp then
+			for _, obj in pairs(ESPObjects) do
+				if obj:IsA("BillboardGui") and obj:FindFirstChild("DistLabel") then
+					local adornee = obj.Adornee
+					if adornee then
+						local dist = (adornee.Position - hrp.Position).Magnitude
+						obj.DistLabel.Text = math.floor(dist) .. "m"
+					end
+				end
+			end
+		end
+
+		-- Update health bars
+		for _, obj in pairs(ESPObjects) do
+			if obj:IsA("BillboardGui") and obj.Name == "RLHUB_HP" then
+				local adornee = obj.Adornee
+				if adornee and adornee.Parent then
+					local hum = adornee.Parent:FindFirstChild("Humanoid")
+					if hum then
+						local fill = obj:FindFirstChild("Frame", true)
+						if fill then
+							local hpFill = fill:FindFirstChild("HPFill")
+							if hpFill then
+								local pct = hum.Health / hum.MaxHealth
+								hpFill.Size = UDim2.new(math.clamp(pct, 0, 1), 0, 1, 0)
+								hpFill.BackgroundColor3 = Color3.fromRGB(255 * (1 - pct), 255 * pct, 0)
+							end
+						end
+					end
+				end
+			end
+		end
+
+		-- Hitbox update
+		if State.Hitbox then UpdateHitbox() end
+
+		-- Inf Dash / Inf Grapple (reset cooldowns)
+		if State.InfDash or State.InfGrapple then
+			for _, v in pairs(char:GetDescendants()) do
+				if v:IsA("NumberValue") and (v.Name:lower():find("cooldown") or v.Name:lower():find("dash") or v.Name:lower():find("grapple") or v.Name:lower():find("charge")) then
+					v.Value = 0
+				end
+			end
+			-- Also check PlayerGui for cooldown UI
+			pcall(function()
+				for _, v in pairs(plr.PlayerGui:GetDescendants()) do
+					if v:IsA("NumberValue") and (v.Name:lower():find("cooldown") or v.Name:lower():find("dash") or v.Name:lower():find("grapple")) then
+						v.Value = 0
+					end
+				end
+			end)
+		end
+
+		-- FPS Display
+		if State.FPSDisplay then
+			local fps = math.floor(1 / RS.Heartbeat:Wait())
+			local ping = math.floor(plr:GetNetworkPing() * 1000)
+			FPSLabel.Text = "FPS: " .. fps .. " | Ping: " .. ping .. "ms"
+		end
+	end)
+end)
+
+-- ESP refresh timer
+task.spawn(function()
+	while not IsUiClosed do
+		if State.PlayerESP then UpdateESP() end
+		if State.Chams then UpdateChams() end
+		task.wait(2)
+	end
+end)
+
+--------------------------------------------------------------
+-- AUTO PARRY SYSTEM (OPTIMIZED)
+--------------------------------------------------------------
+local ActiveProjectiles = {}
+local ParryRemotes = {}
+
+task.spawn(function()
+	pcall(function()
+		local descendants = game:GetService("ReplicatedStorage"):GetDescendants()
+		for i = 1, #descendants do
+			local remote = descendants[i]
+			if remote:IsA("RemoteEvent") and (remote.Name:lower():find("parry") or remote.Name:lower():find("block") or remote.Name:lower():find("deflect")) then
+				table.insert(ParryRemotes, remote)
+			end
+			if i % 500 == 0 then task.wait() end
+		end
+	end)
+end)
+
+local function CheckProjectile(obj)
+	if obj:IsA("BasePart") then
+		local name = obj.Name:lower()
+		if name:find("bullet") or name:find("projectile") or name:find("slash") or name:find("attack") then
+			ActiveProjectiles[obj] = true
+		end
+	end
+end
+
+task.spawn(function()
+	local descendants = workspace:GetDescendants()
+	for i = 1, #descendants do
+		CheckProjectile(descendants[i])
+		if i % 500 == 0 then task.wait() end
+	end
+end)
+
+Connections.ProjAdd = workspace.DescendantAdded:Connect(function(obj)
+	CheckProjectile(obj)
+end)
+
+Connections.ProjRem = workspace.DescendantRemoving:Connect(function(obj)
+	ActiveProjectiles[obj] = nil
+end)
+
+task.spawn(function()
+	while not IsUiClosed do
+		if State.AutoParry then
+			pcall(function()
+				local char = plr.Character
+				if char and char:FindFirstChild("HumanoidRootPart") then
+					local myPos = char.HumanoidRootPart.Position
+					
+					for obj, _ in pairs(ActiveProjectiles) do
+						if obj and obj.Parent then
+							local dist = (obj.Position - myPos).Magnitude
+							if dist < 20 then
+								pcall(function()
+									game:GetService("VirtualInputManager"):SendKeyEvent(true, Enum.KeyCode.F, false, game)
+									task.wait(0.05)
+									game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.F, false, game)
+								end)
+								for _, remote in pairs(ParryRemotes) do
+									pcall(function() remote:FireServer() end)
+								end
+								ActiveProjectiles[obj] = nil
+								break
+							end
+						else
+							ActiveProjectiles[obj] = nil
+						end
+					end
+				end
+			end)
+		end
+		task.wait(0.05)
+	end
+end)
+
+--------------------------------------------------------------
+-- KILL AURA SYSTEM
+--------------------------------------------------------------
+local KillRemotes = {}
+task.spawn(function()
+	pcall(function()
+		local descendants = game:GetService("ReplicatedStorage"):GetDescendants()
+		for i = 1, #descendants do
+			local remote = descendants[i]
+			if remote:IsA("RemoteEvent") and (remote.Name:lower():find("attack") or remote.Name:lower():find("hit") or remote.Name:lower():find("damage") or remote.Name:lower():find("swing") or remote.Name:lower():find("slash")) then
+				table.insert(KillRemotes, remote)
+			end
+			if i % 500 == 0 then task.wait() end
+		end
+	end)
+end)
+
+task.spawn(function()
+	while not IsUiClosed do
+		if State.KillAura then
+			pcall(function()
+				local char = plr.Character
+				if char and char:FindFirstChild("HumanoidRootPart") then
+					local myPos = char.HumanoidRootPart.Position
+					for _, enemy in pairs(GetEnemies()) do
+						local dist = (enemy.Character.HumanoidRootPart.Position - myPos).Magnitude
+						if dist < 15 then
+							pcall(function()
+								for _, remote in pairs(KillRemotes) do
+									remote:FireServer(enemy.Character.HumanoidRootPart)
+									remote:FireServer(enemy.Character)
+								end
+							end)
+						end
+					end
+				end
+			end)
+		end
+		task.wait(0.2)
+	end
+end)
+
+--------------------------------------------------------------
+-- MINIMIZE / CLOSE
+--------------------------------------------------------------
+MinBtn.MouseButton1Click:Connect(function()
+	IsGuiVisible = not IsGuiVisible
+	if IsGuiVisible then
+		ContentArea.Visible = true
+		TabBar.Visible = true
+		StatusBar.Visible = true
+		MainFrame.Size = UDim2.new(0.38, 0, 0.55, 0)
+	else
+		ContentArea.Visible = false
+		TabBar.Visible = false
+		StatusBar.Visible = false
+		MainFrame.Size = UDim2.new(0.38, 0, 0, 36)
+	end
+end)
+
+CloseBtn.MouseButton1Click:Connect(function()
+	IsUiClosed = true
+
+	-- Reset everything
+	ClearESP()
+	ClearChams()
+	ActiveProjectiles = {}
+
+	State.Noclip = false
+	State.Speed = false
+	State.Fly = false
+	State.InfHealth = false
+	State.AutoBHop = false
+	State.ChatSpam = false
+	State.AutoParry = false
+	State.KillAura = false
+	State.Hitbox = false
+	State.Freecam = false
+
+	if FlyBV then FlyBV:Destroy() end
+	if FlyBG then FlyBG:Destroy() end
+
+	-- Restore lighting
+	Lighting.Ambient = OldLighting.Ambient
+	Lighting.OutdoorAmbient = OldLighting.OutdoorAmbient
+	Lighting.Brightness = OldLighting.Brightness
+	Lighting.FogEnd = OldLighting.FogEnd
+	Lighting.GlobalShadows = OldLighting.GlobalShadows
+
+	workspace.Gravity = 196.2
+	if OldCamType then Camera.CameraType = OldCamType end
+	Camera.FieldOfView = 70
+
+	-- Restore hitbox
+	for _, p in pairs(Players:GetPlayers()) do
+		if p ~= plr and p.Character then
+			local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+			if hrp then hrp.Size = Vector3.new(2, 2, 1) hrp.Transparency = 1 end
+		end
+	end
+
+	-- Disconnect all
+	for _, conn in pairs(Connections) do pcall(function() conn:Disconnect() end) end
+
+	-- Reset speed
+	pcall(function() plr.Character.Humanoid.WalkSpeed = 16 end)
+
+	MeeHub:Destroy()
+	getgenv()["MeeHubGUI"] = nil
+end)
+
+--------------------------------------------------------------
+-- KEYBOARD SHORTCUTS
+--------------------------------------------------------------
+UIS.InputBegan:Connect(function(input, gp)
+	if gp then return end
+
+	if input.KeyCode == Enum.KeyCode.F1 then
+		MainFrame.Visible = not MainFrame.Visible
+	elseif input.KeyCode == Enum.KeyCode.F2 then
+		PlayerESPBtn.MouseButton1Click:Fire()
+	elseif input.KeyCode == Enum.KeyCode.F3 then
+		NoclipMoveBtn.MouseButton1Click:Fire()
+	elseif input.KeyCode == Enum.KeyCode.F4 then
+		FlyMoveBtn.MouseButton1Click:Fire()
+	elseif input.KeyCode == Enum.KeyCode.F5 then
+		SpeedBtn.MouseButton1Click:Fire()
+	elseif input.KeyCode == Enum.KeyCode.F6 then
+		AutoParryBtn.MouseButton1Click:Fire()
+	end
+end)
+
+--------------------------------------------------------------
+-- RAINBOW TITLE STROKE
+--------------------------------------------------------------
+task.spawn(function()
+	while not IsUiClosed do
+		for h = 0, 1, 0.01 do
+			if IsUiClosed then break end
+			MainStroke.Color = Color3.fromHSV(h, 1, 1)
+			task.wait(0.05)
+		end
+	end
+end)
+
+--------------------------------------------------------------
+-- LOADED
+--------------------------------------------------------------
+print("âœ¨ MeeHub v1.0 Loaded!")
+print("Shortcuts: F1=GUI | F2=ESP | F3=Noclip | F4=Fly | F5=Speed | F6=Auto Parry")
+
+Notify("âœ¨ MeeHub v1.0", "Loaded! 4 pages, 40+ features!\nF1-F6 shortcuts ready!", 5)
