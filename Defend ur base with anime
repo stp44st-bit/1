@@ -1,0 +1,1334 @@
+--[[
+	MeeHub v1.0 â€” Defend ur base with anime
+	Tower Defense + Tycoon Helper GUI
+	
+	à¸Ÿà¸µà¹€à¸ˆà¸­à¸£à¹Œ: 4 à¸«à¸™à¹‰à¸²
+	  Page 1: Auto Farm (Auto Summon, Auto Merge, Auto Upgrade, Auto Collect)
+	  Page 2: Units & Combat (Unit ESP, Enemy ESP, Auto Place, Auto Sell)
+	  Page 3: Player (Speed, Fly, Noclip, Teleport, Anti-AFK)
+	  Page 4: Misc (Server Hop, FPS Display, Auto Rejoin, Mutation Timer)
+	
+	à¸›à¸¸à¹ˆà¸¡à¸¥à¸±à¸”:
+	  F1 = à¹€à¸›à¸´à¸”/à¸›à¸´à¸” GUI
+	  F2 = Auto Summon
+	  F3 = Auto Merge
+	  F4 = Auto Upgrade
+	  F5 = Speed Boost
+]]
+
+--------------------------------------------------------------
+-- ANTI-DUPLICATE
+--------------------------------------------------------------
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+if getgenv()["MeeHubDefend"] == nil then
+	getgenv()["MeeHubDefend"] = true
+else
+	game:GetService("StarterGui"):SetCore("SendNotification", {
+		Title = "âš ï¸ MeeHub",
+		Text = "GUI is already running! Close the previous one first.",
+		Duration = 5
+	})
+	return
+end
+
+--------------------------------------------------------------
+-- SERVICES
+--------------------------------------------------------------
+local Players = game:GetService("Players")
+local RS = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+local StarterGui = game:GetService("StarterGui")
+local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Camera = workspace.CurrentCamera
+
+local plr = Players.LocalPlayer
+local mouse = plr:GetMouse()
+
+--------------------------------------------------------------
+-- CREATE SCREENGUI
+--------------------------------------------------------------
+local MeeHub = Instance.new("ScreenGui")
+MeeHub.Name = "MeeHub_Defend"
+if RS:IsStudio() then
+	MeeHub.Parent = plr.PlayerGui
+else
+	local ok = pcall(function()
+		MeeHub.Parent = (gethui and gethui()) or game:GetService("CoreGui")
+	end)
+	if not ok then
+		local ok2 = pcall(function() MeeHub.Parent = game:GetService("CoreGui") end)
+		if not ok2 then MeeHub.Parent = plr.PlayerGui end
+	end
+end
+MeeHub.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+MeeHub.ResetOnSpawn = false
+
+--------------------------------------------------------------
+-- MAIN FRAME
+--------------------------------------------------------------
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Parent = MeeHub
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+MainFrame.Size = UDim2.new(0.42, 0, 0.58, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+MainFrame.BackgroundTransparency = 0.03
+MainFrame.BorderSizePixel = 0
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 14)
+MainCorner.Parent = MainFrame
+
+local MainStroke = Instance.new("UIStroke")
+MainStroke.Color = Color3.fromRGB(255, 140, 50) -- Orange/Gold theme
+MainStroke.Thickness = 2.5
+MainStroke.Transparency = 0.1
+MainStroke.Parent = MainFrame
+
+--------------------------------------------------------------
+-- TITLE BAR
+--------------------------------------------------------------
+local TitleBar = Instance.new("Frame")
+TitleBar.Name = "TitleBar"
+TitleBar.Parent = MainFrame
+TitleBar.Size = UDim2.new(1, 0, 0, 42)
+TitleBar.BackgroundColor3 = Color3.fromRGB(255, 120, 30) -- Warm Orange
+TitleBar.BorderSizePixel = 0
+
+local TitleGradient = Instance.new("UIGradient")
+TitleGradient.Color = ColorSequence.new{
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 140, 50)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(230, 80, 20))
+}
+TitleGradient.Parent = TitleBar
+
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 14)
+TitleCorner.Parent = TitleBar
+
+local TitleFix = Instance.new("Frame")
+TitleFix.Parent = TitleBar
+TitleFix.Size = UDim2.new(1, 0, 0, 10)
+TitleFix.Position = UDim2.new(0, 0, 1, -10)
+TitleFix.BackgroundColor3 = Color3.fromRGB(230, 80, 20)
+TitleFix.BorderSizePixel = 0
+
+local TitleText = Instance.new("TextLabel")
+TitleText.Parent = TitleBar
+TitleText.Size = UDim2.new(0.65, 0, 1, 0)
+TitleText.Position = UDim2.new(0.03, 0, 0, 0)
+TitleText.BackgroundTransparency = 1
+TitleText.Font = Enum.Font.GothamBlack
+TitleText.Text = "âœ¨ MeeHub â€” Defend Base"
+TitleText.TextColor3 = Color3.fromRGB(255, 255, 255)
+TitleText.TextScaled = true
+TitleText.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Close Button
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Name = "Close"
+CloseBtn.Parent = TitleBar
+CloseBtn.Size = UDim2.new(0, 32, 0, 32)
+CloseBtn.Position = UDim2.new(1, -36, 0, 5)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 30)
+CloseBtn.BorderSizePixel = 0
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.TextScaled = true
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 8)
+CloseCorner.Parent = CloseBtn
+
+-- Minimize Button
+local MinBtn = Instance.new("TextButton")
+MinBtn.Name = "Minimize"
+MinBtn.Parent = TitleBar
+MinBtn.Size = UDim2.new(0, 32, 0, 32)
+MinBtn.Position = UDim2.new(1, -72, 0, 5)
+MinBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 65)
+MinBtn.BorderSizePixel = 0
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.Text = "_"
+MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MinBtn.TextScaled = true
+local MinCorner = Instance.new("UICorner")
+MinCorner.CornerRadius = UDim.new(0, 8)
+MinCorner.Parent = MinBtn
+
+--------------------------------------------------------------
+-- TAB BUTTONS
+--------------------------------------------------------------
+local TabBar = Instance.new("Frame")
+TabBar.Parent = MainFrame
+TabBar.Size = UDim2.new(1, 0, 0, 30)
+TabBar.Position = UDim2.new(0, 0, 0, 44)
+TabBar.BackgroundColor3 = Color3.fromRGB(25, 25, 32)
+TabBar.BorderSizePixel = 0
+
+local tabNames = {"ðŸŽ² Auto Farm", "âš”ï¸ Units", "ðŸƒ Player", "ðŸ”§ Misc"}
+local tabButtons = {}
+
+for i, name in ipairs(tabNames) do
+	local tab = Instance.new("TextButton")
+	tab.Name = "Tab" .. i
+	tab.Parent = TabBar
+	tab.Size = UDim2.new(0.25, 0, 1, 0)
+	tab.Position = UDim2.new(0.25 * (i - 1), 0, 0, 0)
+	tab.BackgroundColor3 = i == 1 and Color3.fromRGB(255, 120, 30) or Color3.fromRGB(35, 35, 48)
+	tab.BackgroundTransparency = i == 1 and 0 or 0.3
+	tab.BorderSizePixel = 0
+	tab.Font = Enum.Font.GothamBold
+	tab.Text = name
+	tab.TextColor3 = Color3.fromRGB(255, 255, 255)
+	tab.TextScaled = true
+	tab.TextSize = 11
+	tabButtons[i] = tab
+end
+
+--------------------------------------------------------------
+-- CONTENT AREA
+--------------------------------------------------------------
+local ContentArea = Instance.new("Frame")
+ContentArea.Parent = MainFrame
+ContentArea.Size = UDim2.new(1, -16, 1, -108)
+ContentArea.Position = UDim2.new(0, 8, 0, 78)
+ContentArea.BackgroundTransparency = 1
+ContentArea.BorderSizePixel = 0
+ContentArea.ClipsDescendants = true
+
+--------------------------------------------------------------
+-- HELPERS
+--------------------------------------------------------------
+local function CreateToggleBtn(parent, name, text, position)
+	local btn = Instance.new("TextButton")
+	btn.Name = name
+	btn.Parent = parent
+	btn.Position = position
+	btn.Size = UDim2.new(0.31, -4, 0, 34)
+	btn.BackgroundColor3 = Color3.fromRGB(38, 38, 50)
+	btn.BorderSizePixel = 0
+	btn.Font = Enum.Font.GothamSemibold
+	btn.Text = text
+	btn.TextColor3 = Color3.fromRGB(220, 220, 220)
+	btn.TextScaled = true
+	btn.TextSize = 11
+	
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent = btn
+	
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(60, 60, 75)
+	stroke.Thickness = 1.2
+	stroke.Parent = btn
+	
+	return btn
+end
+
+local function SetBtnOn(btn)
+	btn.BackgroundColor3 = Color3.fromRGB(255, 120, 30)
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+end
+
+local function SetBtnOff(btn)
+	btn.BackgroundColor3 = Color3.fromRGB(38, 38, 50)
+	btn.TextColor3 = Color3.fromRGB(220, 220, 220)
+end
+
+local function CreateSectionTitle(parent, text, position)
+	local label = Instance.new("TextLabel")
+	label.Parent = parent
+	label.Position = position
+	label.Size = UDim2.new(1, 0, 0, 22)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBold
+	label.Text = text
+	label.TextColor3 = Color3.fromRGB(255, 160, 60)
+	label.TextScaled = true
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	return label
+end
+
+local function Notify(title, text, duration)
+	StarterGui:SetCore("SendNotification", {
+		Title = title, Text = text, Duration = duration or 3
+	})
+end
+
+--------------------------------------------------------------
+-- PAGE 1: AUTO FARM
+--------------------------------------------------------------
+local Page1 = Instance.new("ScrollingFrame")
+Page1.Name = "Page1"
+Page1.Parent = ContentArea
+Page1.Size = UDim2.new(1, 0, 1, 0)
+Page1.BackgroundTransparency = 1
+Page1.BorderSizePixel = 0
+Page1.ScrollBarThickness = 4
+Page1.ScrollBarImageColor3 = Color3.fromRGB(255, 120, 30)
+Page1.CanvasSize = UDim2.new(0, 0, 0, 420)
+Page1.Visible = true
+
+CreateSectionTitle(Page1, "â€” Auto Summon â€”", UDim2.new(0, 0, 0, 0))
+local AutoSummonBtn = CreateToggleBtn(Page1, "AutoSummon", "Auto Summon: OFF", UDim2.new(0, 0, 0, 26))
+local AutoSummonX10Btn = CreateToggleBtn(Page1, "AutoSummonX10", "Auto x10: OFF", UDim2.new(0.33, 2, 0, 26))
+local SummonSpeedBtn = CreateToggleBtn(Page1, "SummonSpeed", "Delay: 0.5s", UDim2.new(0.66, 4, 0, 26))
+
+CreateSectionTitle(Page1, "â€” Auto Merge â€”", UDim2.new(0, 0, 0, 68))
+local AutoMergeBtn = CreateToggleBtn(Page1, "AutoMerge", "Auto Merge: OFF", UDim2.new(0, 0, 0, 94))
+local MergeAllBtn = CreateToggleBtn(Page1, "MergeAll", "Merge All Now", UDim2.new(0.33, 2, 0, 94))
+local AutoDeleteBtn = CreateToggleBtn(Page1, "AutoDelete", "Delete Common: OFF", UDim2.new(0.66, 4, 0, 94))
+
+CreateSectionTitle(Page1, "â€” Auto Upgrade â€”", UDim2.new(0, 0, 0, 136))
+local AutoUpgBaseBtn = CreateToggleBtn(Page1, "AutoUpgBase", "Upg Base: OFF", UDim2.new(0, 0, 0, 162))
+local AutoUpgLuckBtn = CreateToggleBtn(Page1, "AutoUpgLuck", "Upg Luck: OFF", UDim2.new(0.33, 2, 0, 162))
+local AutoUpgDmgBtn = CreateToggleBtn(Page1, "AutoUpgDmg", "Upg Damage: OFF", UDim2.new(0.66, 4, 0, 162))
+
+CreateSectionTitle(Page1, "â€” Farming â€”", UDim2.new(0, 0, 0, 204))
+local AutoCollectBtn = CreateToggleBtn(Page1, "AutoCollect", "Auto Collect: OFF", UDim2.new(0, 0, 0, 230))
+local AutoRebirthBtn = CreateToggleBtn(Page1, "AutoRebirth", "Auto Rebirth: OFF", UDim2.new(0.33, 2, 0, 230))
+local InfCashBtn = CreateToggleBtn(Page1, "InfCash", "Inf Cash: OFF", UDim2.new(0.66, 4, 0, 230))
+
+CreateSectionTitle(Page1, "â€” Traits & Crafting â€”", UDim2.new(0, 0, 0, 272))
+local AutoTraitBtn = CreateToggleBtn(Page1, "AutoTrait", "Auto Trait: OFF", UDim2.new(0, 0, 0, 298))
+local AutoCraftBtn = CreateToggleBtn(Page1, "AutoCraft", "Auto Craft: OFF", UDim2.new(0.33, 2, 0, 298))
+local AutoCloneBtn = CreateToggleBtn(Page1, "AutoClone", "Auto Clone: OFF", UDim2.new(0.66, 4, 0, 298))
+
+--------------------------------------------------------------
+-- PAGE 2: UNITS & COMBAT
+--------------------------------------------------------------
+local Page2 = Instance.new("ScrollingFrame")
+Page2.Name = "Page2"
+Page2.Parent = ContentArea
+Page2.Size = UDim2.new(1, 0, 1, 0)
+Page2.BackgroundTransparency = 1
+Page2.BorderSizePixel = 0
+Page2.ScrollBarThickness = 4
+Page2.ScrollBarImageColor3 = Color3.fromRGB(255, 120, 30)
+Page2.CanvasSize = UDim2.new(0, 0, 0, 360)
+Page2.Visible = false
+
+CreateSectionTitle(Page2, "â€” ESP â€”", UDim2.new(0, 0, 0, 0))
+local UnitESPBtn = CreateToggleBtn(Page2, "UnitESP", "Unit ESP: OFF", UDim2.new(0, 0, 0, 26))
+local EnemyESPBtn = CreateToggleBtn(Page2, "EnemyESP", "Enemy ESP: OFF", UDim2.new(0.33, 2, 0, 26))
+local BossESPBtn = CreateToggleBtn(Page2, "BossESP", "Boss ESP: OFF", UDim2.new(0.66, 4, 0, 26))
+
+CreateSectionTitle(Page2, "â€” Unit Management â€”", UDim2.new(0, 0, 0, 68))
+local AutoPlaceBtn = CreateToggleBtn(Page2, "AutoPlace", "Auto Place: OFF", UDim2.new(0, 0, 0, 94))
+local SellDupesBtn = CreateToggleBtn(Page2, "SellDupes", "Sell Dupes", UDim2.new(0.33, 2, 0, 94))
+local SellCommonBtn = CreateToggleBtn(Page2, "SellCommon", "Sell Commons", UDim2.new(0.66, 4, 0, 94))
+
+CreateSectionTitle(Page2, "â€” Combat Boost â€”", UDim2.new(0, 0, 0, 136))
+local DmgMultBtn = CreateToggleBtn(Page2, "DmgMult", "Dmg x2: OFF", UDim2.new(0, 0, 0, 162))
+local AttackSpeedBtn = CreateToggleBtn(Page2, "AttackSpeed", "Atk Speed: OFF", UDim2.new(0.33, 2, 0, 162))
+local RangeBoostBtn = CreateToggleBtn(Page2, "RangeBoost", "Range+: OFF", UDim2.new(0.66, 4, 0, 162))
+
+CreateSectionTitle(Page2, "â€” Wave Control â€”", UDim2.new(0, 0, 0, 204))
+local AutoStartBtn = CreateToggleBtn(Page2, "AutoStart", "Auto Start: OFF", UDim2.new(0, 0, 0, 230))
+local SkipWaveBtn = CreateToggleBtn(Page2, "SkipWave", "Skip Wave", UDim2.new(0.33, 2, 0, 230))
+local WaveInfoBtn = CreateToggleBtn(Page2, "WaveInfo", "Wave Info: OFF", UDim2.new(0.66, 4, 0, 230))
+
+--------------------------------------------------------------
+-- PAGE 3: PLAYER
+--------------------------------------------------------------
+local Page3 = Instance.new("ScrollingFrame")
+Page3.Name = "Page3"
+Page3.Parent = ContentArea
+Page3.Size = UDim2.new(1, 0, 1, 0)
+Page3.BackgroundTransparency = 1
+Page3.BorderSizePixel = 0
+Page3.ScrollBarThickness = 4
+Page3.ScrollBarImageColor3 = Color3.fromRGB(255, 120, 30)
+Page3.CanvasSize = UDim2.new(0, 0, 0, 360)
+Page3.Visible = false
+
+CreateSectionTitle(Page3, "â€” Movement â€”", UDim2.new(0, 0, 0, 0))
+local SpeedBtn = CreateToggleBtn(Page3, "Speed", "Speed: OFF", UDim2.new(0, 0, 0, 26))
+local FlyBtn = CreateToggleBtn(Page3, "Fly", "Fly: OFF", UDim2.new(0.33, 2, 0, 26))
+local NoclipBtn = CreateToggleBtn(Page3, "Noclip", "Noclip: OFF", UDim2.new(0.66, 4, 0, 26))
+
+local SpeedMultBtn = CreateToggleBtn(Page3, "SpeedMult", "Speed: x2", UDim2.new(0, 0, 0, 66))
+local JumpPwrBtn = CreateToggleBtn(Page3, "JumpPwr", "Jump: 50", UDim2.new(0.33, 2, 0, 66))
+local GravityBtn = CreateToggleBtn(Page3, "Gravity", "Low Gravity: OFF", UDim2.new(0.66, 4, 0, 66))
+
+CreateSectionTitle(Page3, "â€” Teleport â€”", UDim2.new(0, 0, 0, 108))
+local TpBaseBtn = CreateToggleBtn(Page3, "TpBase", "TP to Base", UDim2.new(0, 0, 0, 134))
+local TpShopBtn = CreateToggleBtn(Page3, "TpShop", "TP to Shop", UDim2.new(0.33, 2, 0, 134))
+local TpSpawnBtn = CreateToggleBtn(Page3, "TpSpawn", "TP to Spawn", UDim2.new(0.66, 4, 0, 134))
+
+CreateSectionTitle(Page3, "â€” Visuals â€”", UDim2.new(0, 0, 0, 176))
+local FullBrightBtn = CreateToggleBtn(Page3, "FullBright", "Full Bright: OFF", UDim2.new(0, 0, 0, 202))
+local NoFogBtn = CreateToggleBtn(Page3, "NoFog", "No Fog: OFF", UDim2.new(0.33, 2, 0, 202))
+local FOVBtn = CreateToggleBtn(Page3, "FOV", "FOV: 70", UDim2.new(0.66, 4, 0, 202))
+
+CreateSectionTitle(Page3, "â€” Character â€”", UDim2.new(0, 0, 0, 244))
+local InvisBtn = CreateToggleBtn(Page3, "Invis", "Invisible: OFF", UDim2.new(0, 0, 0, 270))
+local SmallCharBtn = CreateToggleBtn(Page3, "SmallChar", "Small Char", UDim2.new(0.33, 2, 0, 270))
+local RespawnBtn = CreateToggleBtn(Page3, "Respawn", "Respawn", UDim2.new(0.66, 4, 0, 270))
+
+--------------------------------------------------------------
+-- PAGE 4: MISC
+--------------------------------------------------------------
+local Page4 = Instance.new("ScrollingFrame")
+Page4.Name = "Page4"
+Page4.Parent = ContentArea
+Page4.Size = UDim2.new(1, 0, 1, 0)
+Page4.BackgroundTransparency = 1
+Page4.BorderSizePixel = 0
+Page4.ScrollBarThickness = 4
+Page4.ScrollBarImageColor3 = Color3.fromRGB(255, 120, 30)
+Page4.CanvasSize = UDim2.new(0, 0, 0, 360)
+Page4.Visible = false
+
+CreateSectionTitle(Page4, "â€” Anti-Kick â€”", UDim2.new(0, 0, 0, 0))
+local AntiAFKBtn = CreateToggleBtn(Page4, "AntiAFK", "Anti-AFK: OFF", UDim2.new(0, 0, 0, 26))
+local AntiSlowBtn = CreateToggleBtn(Page4, "AntiSlow", "Anti-Slow: OFF", UDim2.new(0.33, 2, 0, 26))
+local AntiVoidBtn = CreateToggleBtn(Page4, "AntiVoid", "Anti-Void: OFF", UDim2.new(0.66, 4, 0, 26))
+
+CreateSectionTitle(Page4, "â€” Server â€”", UDim2.new(0, 0, 0, 68))
+local ServerHopBtn = CreateToggleBtn(Page4, "ServerHop", "Server Hop", UDim2.new(0, 0, 0, 94))
+local RejoinBtn = CreateToggleBtn(Page4, "Rejoin", "Rejoin", UDim2.new(0.33, 2, 0, 94))
+local CopyJobBtn = CreateToggleBtn(Page4, "CopyJob", "Copy JobId", UDim2.new(0.66, 4, 0, 94))
+
+CreateSectionTitle(Page4, "â€” Performance â€”", UDim2.new(0, 0, 0, 136))
+local FPSDisplayBtn = CreateToggleBtn(Page4, "FPSDisplay", "FPS Display: OFF", UDim2.new(0, 0, 0, 162))
+local LagReduceBtn = CreateToggleBtn(Page4, "LagReduce", "Reduce Lag: OFF", UDim2.new(0.33, 2, 0, 162))
+local NoParticlesBtn = CreateToggleBtn(Page4, "NoParticles", "No Particles: OFF", UDim2.new(0.66, 4, 0, 162))
+
+CreateSectionTitle(Page4, "â€” Mutation Timer â€”", UDim2.new(0, 0, 0, 204))
+local MutTimerBtn = CreateToggleBtn(Page4, "MutTimer", "Mut Timer: OFF", UDim2.new(0, 0, 0, 230))
+local MutAlertBtn = CreateToggleBtn(Page4, "MutAlert", "Mut Alert: OFF", UDim2.new(0.33, 2, 0, 230))
+local InfYieldBtn = CreateToggleBtn(Page4, "InfYield", "Infinite Yield", UDim2.new(0.66, 4, 0, 230))
+
+-- Status bar
+local StatusBar = Instance.new("TextLabel")
+StatusBar.Parent = MainFrame
+StatusBar.Size = UDim2.new(1, 0, 0, 24)
+StatusBar.Position = UDim2.new(0, 0, 1, -24)
+StatusBar.BackgroundColor3 = Color3.fromRGB(25, 25, 32)
+StatusBar.BorderSizePixel = 0
+StatusBar.Font = Enum.Font.Gotham
+StatusBar.Text = "  MeeHub | F1=Toggle | F2=Summon | F3=Merge | F4=Upgrade"
+StatusBar.TextColor3 = Color3.fromRGB(150, 150, 165)
+StatusBar.TextScaled = true
+StatusBar.TextXAlignment = Enum.TextXAlignment.Left
+local StatusCorner = Instance.new("UICorner")
+StatusCorner.CornerRadius = UDim.new(0, 14)
+StatusCorner.Parent = StatusBar
+
+-- FPS/Ping overlay
+local FPSLabel = Instance.new("TextLabel")
+FPSLabel.Parent = MeeHub
+FPSLabel.Size = UDim2.new(0, 140, 0, 22)
+FPSLabel.Position = UDim2.new(0, 5, 0, 5)
+FPSLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+FPSLabel.BackgroundTransparency = 0.4
+FPSLabel.BorderSizePixel = 0
+FPSLabel.Font = Enum.Font.GothamBold
+FPSLabel.Text = "FPS: -- | Ping: --"
+FPSLabel.TextColor3 = Color3.fromRGB(255, 160, 60)
+FPSLabel.TextScaled = true
+FPSLabel.Visible = false
+local FPSCorner = Instance.new("UICorner")
+FPSCorner.CornerRadius = UDim.new(0, 6)
+FPSCorner.Parent = FPSLabel
+
+-- Mutation Timer overlay
+local MutLabel = Instance.new("TextLabel")
+MutLabel.Parent = MeeHub
+MutLabel.Size = UDim2.new(0, 200, 0, 28)
+MutLabel.Position = UDim2.new(0.5, -100, 0, 5)
+MutLabel.AnchorPoint = Vector2.new(0, 0)
+MutLabel.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+MutLabel.BackgroundTransparency = 0.3
+MutLabel.BorderSizePixel = 0
+MutLabel.Font = Enum.Font.GothamBold
+MutLabel.Text = "Next Mutation: --:--"
+MutLabel.TextColor3 = Color3.fromRGB(255, 200, 50)
+MutLabel.TextScaled = true
+MutLabel.Visible = false
+local MutCorner = Instance.new("UICorner")
+MutCorner.CornerRadius = UDim.new(0, 6)
+MutCorner.Parent = MutLabel
+local MutStroke = Instance.new("UIStroke")
+MutStroke.Color = Color3.fromRGB(255, 200, 50)
+MutStroke.Thickness = 1
+MutStroke.Transparency = 0.5
+MutStroke.Parent = MutLabel
+
+--------------------------------------------------------------
+-- STATE
+--------------------------------------------------------------
+local Pages = {Page1, Page2, Page3, Page4}
+local CurrentPage = 1
+local IsGuiVisible = true
+local IsUiClosed = false
+
+local State = {
+	AutoSummon = false,
+	AutoSummonX10 = false,
+	SummonDelay = 0.5,
+	AutoMerge = false,
+	AutoDelete = false,
+	AutoUpgBase = false,
+	AutoUpgLuck = false,
+	AutoUpgDmg = false,
+	AutoCollect = false,
+	AutoRebirth = false,
+	InfCash = false,
+	AutoTrait = false,
+	AutoCraft = false,
+	AutoClone = false,
+	UnitESP = false,
+	EnemyESP = false,
+	BossESP = false,
+	AutoPlace = false,
+	DmgMult = false,
+	AttackSpeed = false,
+	RangeBoost = false,
+	AutoStart = false,
+	WaveInfo = false,
+	Speed = false,
+	SpeedMult = 2,
+	Fly = false,
+	FlySpeed = 60,
+	Noclip = false,
+	JumpPower = 50,
+	LowGravity = false,
+	Invisible = false,
+	FullBright = false,
+	NoFog = false,
+	FOV = 70,
+	AntiAFK = false,
+	AntiSlow = false,
+	AntiVoid = false,
+	FPSDisplay = false,
+	LagReduce = false,
+	NoParticles = false,
+	MutTimer = false,
+	MutAlert = false,
+}
+
+local Connections = {}
+local ESPObjects = {}
+local FlyBV, FlyBG = nil, nil
+
+local OldLighting = {
+	Ambient = Lighting.Ambient,
+	OutdoorAmbient = Lighting.OutdoorAmbient,
+	Brightness = Lighting.Brightness,
+	FogEnd = Lighting.FogEnd,
+	GlobalShadows = Lighting.GlobalShadows,
+}
+
+--------------------------------------------------------------
+-- TAB SWITCHING
+--------------------------------------------------------------
+local function SwitchTab(pageNum)
+	CurrentPage = pageNum
+	for i, page in ipairs(Pages) do
+		page.Visible = (i == pageNum)
+		tabButtons[i].BackgroundColor3 = (i == pageNum) and Color3.fromRGB(255, 120, 30) or Color3.fromRGB(35, 35, 48)
+		tabButtons[i].BackgroundTransparency = (i == pageNum) and 0 or 0.3
+	end
+end
+
+for i, tab in ipairs(tabButtons) do
+	tab.MouseButton1Click:Connect(function() SwitchTab(i) end)
+end
+
+--------------------------------------------------------------
+-- REMOTE FINDER (à¸„à¹‰à¸™à¸«à¸² Remote à¸—à¸µà¹€à¸”à¸µà¸¢à¸§ à¹„à¸¡à¹ˆà¸‹à¹‰à¸³)
+--------------------------------------------------------------
+local CachedRemotes = {}
+local function FindRemote(name)
+	if CachedRemotes[name] then return CachedRemotes[name] end
+	local remote = nil
+	pcall(function()
+		for _, v in pairs(ReplicatedStorage:GetDescendants()) do
+			if (v:IsA("RemoteEvent") or v:IsA("RemoteFunction")) and v.Name:lower():find(name:lower()) then
+				remote = v
+				break
+			end
+		end
+	end)
+	if remote then CachedRemotes[name] = remote end
+	return remote
+end
+
+-- Pre-cache common remotes on startup (async to avoid crash)
+task.spawn(function()
+	task.wait(2)
+	pcall(function()
+		local names = {"summon", "merge", "upgrade", "collect", "rebirth", "trait", "craft", "clone", "place", "sell", "start", "skip", "roll"}
+		for _, n in ipairs(names) do
+			FindRemote(n)
+			task.wait(0.1)
+		end
+	end)
+end)
+
+--------------------------------------------------------------
+-- HELPER: Fire remote safely
+--------------------------------------------------------------
+local function FireRemote(name, ...)
+	local remote = FindRemote(name)
+	if remote then
+		pcall(function()
+			if remote:IsA("RemoteEvent") then
+				remote:FireServer(...)
+			elseif remote:IsA("RemoteFunction") then
+				remote:InvokeServer(...)
+			end
+		end)
+		return true
+	end
+	return false
+end
+
+--------------------------------------------------------------
+-- ESP SYSTEM
+--------------------------------------------------------------
+local function ClearESP()
+	for _, obj in pairs(ESPObjects) do pcall(function() obj:Destroy() end) end
+	ESPObjects = {}
+end
+
+local function CreateHighlight(parent, color, fillTrans)
+	local hl = Instance.new("Highlight")
+	hl.Name = "MEEHUB_HL"
+	hl.Parent = parent
+	hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	hl.FillColor = color
+	hl.FillTransparency = fillTrans or 0.6
+	hl.OutlineColor = color
+	hl.OutlineTransparency = 0
+	table.insert(ESPObjects, hl)
+	return hl
+end
+
+--------------------------------------------------------------
+-- BUTTON HANDLERS: PAGE 1 (AUTO FARM)
+--------------------------------------------------------------
+AutoSummonBtn.MouseButton1Click:Connect(function()
+	State.AutoSummon = not State.AutoSummon
+	if State.AutoSummon then SetBtnOn(AutoSummonBtn) AutoSummonBtn.Text = "Auto Summon: ON" else SetBtnOff(AutoSummonBtn) AutoSummonBtn.Text = "Auto Summon: OFF" end
+end)
+
+AutoSummonX10Btn.MouseButton1Click:Connect(function()
+	State.AutoSummonX10 = not State.AutoSummonX10
+	if State.AutoSummonX10 then SetBtnOn(AutoSummonX10Btn) AutoSummonX10Btn.Text = "Auto x10: ON" else SetBtnOff(AutoSummonX10Btn) AutoSummonX10Btn.Text = "Auto x10: OFF" end
+end)
+
+SummonSpeedBtn.MouseButton1Click:Connect(function()
+	if State.SummonDelay == 0.5 then State.SummonDelay = 0.3
+	elseif State.SummonDelay == 0.3 then State.SummonDelay = 0.1
+	elseif State.SummonDelay == 0.1 then State.SummonDelay = 0.05
+	else State.SummonDelay = 0.5 end
+	SummonSpeedBtn.Text = "Delay: " .. State.SummonDelay .. "s"
+end)
+
+AutoMergeBtn.MouseButton1Click:Connect(function()
+	State.AutoMerge = not State.AutoMerge
+	if State.AutoMerge then SetBtnOn(AutoMergeBtn) AutoMergeBtn.Text = "Auto Merge: ON" else SetBtnOff(AutoMergeBtn) AutoMergeBtn.Text = "Auto Merge: OFF" end
+end)
+
+MergeAllBtn.MouseButton1Click:Connect(function()
+	FireRemote("merge")
+	Notify("MeeHub", "Merged all units!", 2)
+end)
+
+AutoDeleteBtn.MouseButton1Click:Connect(function()
+	State.AutoDelete = not State.AutoDelete
+	if State.AutoDelete then SetBtnOn(AutoDeleteBtn) AutoDeleteBtn.Text = "Delete Common: ON" else SetBtnOff(AutoDeleteBtn) AutoDeleteBtn.Text = "Delete Common: OFF" end
+end)
+
+AutoUpgBaseBtn.MouseButton1Click:Connect(function()
+	State.AutoUpgBase = not State.AutoUpgBase
+	if State.AutoUpgBase then SetBtnOn(AutoUpgBaseBtn) AutoUpgBaseBtn.Text = "Upg Base: ON" else SetBtnOff(AutoUpgBaseBtn) AutoUpgBaseBtn.Text = "Upg Base: OFF" end
+end)
+
+AutoUpgLuckBtn.MouseButton1Click:Connect(function()
+	State.AutoUpgLuck = not State.AutoUpgLuck
+	if State.AutoUpgLuck then SetBtnOn(AutoUpgLuckBtn) AutoUpgLuckBtn.Text = "Upg Luck: ON" else SetBtnOff(AutoUpgLuckBtn) AutoUpgLuckBtn.Text = "Upg Luck: OFF" end
+end)
+
+AutoUpgDmgBtn.MouseButton1Click:Connect(function()
+	State.AutoUpgDmg = not State.AutoUpgDmg
+	if State.AutoUpgDmg then SetBtnOn(AutoUpgDmgBtn) AutoUpgDmgBtn.Text = "Upg Damage: ON" else SetBtnOff(AutoUpgDmgBtn) AutoUpgDmgBtn.Text = "Upg Damage: OFF" end
+end)
+
+AutoCollectBtn.MouseButton1Click:Connect(function()
+	State.AutoCollect = not State.AutoCollect
+	if State.AutoCollect then SetBtnOn(AutoCollectBtn) AutoCollectBtn.Text = "Auto Collect: ON" else SetBtnOff(AutoCollectBtn) AutoCollectBtn.Text = "Auto Collect: OFF" end
+end)
+
+AutoRebirthBtn.MouseButton1Click:Connect(function()
+	State.AutoRebirth = not State.AutoRebirth
+	if State.AutoRebirth then SetBtnOn(AutoRebirthBtn) AutoRebirthBtn.Text = "Auto Rebirth: ON" else SetBtnOff(AutoRebirthBtn) AutoRebirthBtn.Text = "Auto Rebirth: OFF" end
+end)
+
+InfCashBtn.MouseButton1Click:Connect(function()
+	State.InfCash = not State.InfCash
+	if State.InfCash then SetBtnOn(InfCashBtn) InfCashBtn.Text = "Inf Cash: ON" else SetBtnOff(InfCashBtn) InfCashBtn.Text = "Inf Cash: OFF" end
+end)
+
+AutoTraitBtn.MouseButton1Click:Connect(function()
+	State.AutoTrait = not State.AutoTrait
+	if State.AutoTrait then SetBtnOn(AutoTraitBtn) AutoTraitBtn.Text = "Auto Trait: ON" else SetBtnOff(AutoTraitBtn) AutoTraitBtn.Text = "Auto Trait: OFF" end
+end)
+
+AutoCraftBtn.MouseButton1Click:Connect(function()
+	State.AutoCraft = not State.AutoCraft
+	if State.AutoCraft then SetBtnOn(AutoCraftBtn) AutoCraftBtn.Text = "Auto Craft: ON" else SetBtnOff(AutoCraftBtn) AutoCraftBtn.Text = "Auto Craft: OFF" end
+end)
+
+AutoCloneBtn.MouseButton1Click:Connect(function()
+	State.AutoClone = not State.AutoClone
+	if State.AutoClone then SetBtnOn(AutoCloneBtn) AutoCloneBtn.Text = "Auto Clone: ON" else SetBtnOff(AutoCloneBtn) AutoCloneBtn.Text = "Auto Clone: OFF" end
+end)
+
+--------------------------------------------------------------
+-- BUTTON HANDLERS: PAGE 2 (UNITS & COMBAT)
+--------------------------------------------------------------
+UnitESPBtn.MouseButton1Click:Connect(function()
+	State.UnitESP = not State.UnitESP
+	if State.UnitESP then SetBtnOn(UnitESPBtn) UnitESPBtn.Text = "Unit ESP: ON" else SetBtnOff(UnitESPBtn) UnitESPBtn.Text = "Unit ESP: OFF" end
+end)
+
+EnemyESPBtn.MouseButton1Click:Connect(function()
+	State.EnemyESP = not State.EnemyESP
+	if State.EnemyESP then SetBtnOn(EnemyESPBtn) EnemyESPBtn.Text = "Enemy ESP: ON" else SetBtnOff(EnemyESPBtn) EnemyESPBtn.Text = "Enemy ESP: OFF" end
+end)
+
+BossESPBtn.MouseButton1Click:Connect(function()
+	State.BossESP = not State.BossESP
+	if State.BossESP then SetBtnOn(BossESPBtn) BossESPBtn.Text = "Boss ESP: ON" else SetBtnOff(BossESPBtn) BossESPBtn.Text = "Boss ESP: OFF" end
+end)
+
+AutoPlaceBtn.MouseButton1Click:Connect(function()
+	State.AutoPlace = not State.AutoPlace
+	if State.AutoPlace then SetBtnOn(AutoPlaceBtn) AutoPlaceBtn.Text = "Auto Place: ON" else SetBtnOff(AutoPlaceBtn) AutoPlaceBtn.Text = "Auto Place: OFF" end
+end)
+
+SellDupesBtn.MouseButton1Click:Connect(function()
+	FireRemote("sell")
+	Notify("MeeHub", "Selling duplicate units...", 2)
+end)
+
+SellCommonBtn.MouseButton1Click:Connect(function()
+	FireRemote("sell")
+	Notify("MeeHub", "Selling common units...", 2)
+end)
+
+DmgMultBtn.MouseButton1Click:Connect(function()
+	State.DmgMult = not State.DmgMult
+	if State.DmgMult then SetBtnOn(DmgMultBtn) DmgMultBtn.Text = "Dmg x2: ON" else SetBtnOff(DmgMultBtn) DmgMultBtn.Text = "Dmg x2: OFF" end
+end)
+
+AttackSpeedBtn.MouseButton1Click:Connect(function()
+	State.AttackSpeed = not State.AttackSpeed
+	if State.AttackSpeed then SetBtnOn(AttackSpeedBtn) AttackSpeedBtn.Text = "Atk Speed: ON" else SetBtnOff(AttackSpeedBtn) AttackSpeedBtn.Text = "Atk Speed: OFF" end
+end)
+
+RangeBoostBtn.MouseButton1Click:Connect(function()
+	State.RangeBoost = not State.RangeBoost
+	if State.RangeBoost then SetBtnOn(RangeBoostBtn) RangeBoostBtn.Text = "Range+: ON" else SetBtnOff(RangeBoostBtn) RangeBoostBtn.Text = "Range+: OFF" end
+end)
+
+AutoStartBtn.MouseButton1Click:Connect(function()
+	State.AutoStart = not State.AutoStart
+	if State.AutoStart then SetBtnOn(AutoStartBtn) AutoStartBtn.Text = "Auto Start: ON" else SetBtnOff(AutoStartBtn) AutoStartBtn.Text = "Auto Start: OFF" end
+end)
+
+SkipWaveBtn.MouseButton1Click:Connect(function()
+	FireRemote("skip")
+	Notify("MeeHub", "Skipping wave...", 2)
+end)
+
+WaveInfoBtn.MouseButton1Click:Connect(function()
+	State.WaveInfo = not State.WaveInfo
+	if State.WaveInfo then SetBtnOn(WaveInfoBtn) WaveInfoBtn.Text = "Wave Info: ON" else SetBtnOff(WaveInfoBtn) WaveInfoBtn.Text = "Wave Info: OFF" end
+end)
+
+--------------------------------------------------------------
+-- BUTTON HANDLERS: PAGE 3 (PLAYER)
+--------------------------------------------------------------
+SpeedBtn.MouseButton1Click:Connect(function()
+	State.Speed = not State.Speed
+	if State.Speed then SetBtnOn(SpeedBtn) SpeedBtn.Text = "Speed: ON" else SetBtnOff(SpeedBtn) SpeedBtn.Text = "Speed: OFF" pcall(function() plr.Character.Humanoid.WalkSpeed = 16 end) end
+end)
+
+FlyBtn.MouseButton1Click:Connect(function()
+	State.Fly = not State.Fly
+	if State.Fly then
+		SetBtnOn(FlyBtn) FlyBtn.Text = "Fly: ON"
+		local char = plr.Character
+		if char and char:FindFirstChild("HumanoidRootPart") then
+			FlyBV = Instance.new("BodyVelocity")
+			FlyBV.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+			FlyBV.Velocity = Vector3.zero
+			FlyBV.Parent = char.HumanoidRootPart
+			FlyBG = Instance.new("BodyGyro")
+			FlyBG.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+			FlyBG.P = 9e4
+			FlyBG.Parent = char.HumanoidRootPart
+		end
+	else
+		SetBtnOff(FlyBtn) FlyBtn.Text = "Fly: OFF"
+		if FlyBV then FlyBV:Destroy() FlyBV = nil end
+		if FlyBG then FlyBG:Destroy() FlyBG = nil end
+	end
+end)
+
+NoclipBtn.MouseButton1Click:Connect(function()
+	State.Noclip = not State.Noclip
+	if State.Noclip then SetBtnOn(NoclipBtn) NoclipBtn.Text = "Noclip: ON" else SetBtnOff(NoclipBtn) NoclipBtn.Text = "Noclip: OFF" end
+end)
+
+SpeedMultBtn.MouseButton1Click:Connect(function()
+	State.SpeedMult = State.SpeedMult + 1
+	if State.SpeedMult > 10 then State.SpeedMult = 1 end
+	SpeedMultBtn.Text = "Speed: x" .. State.SpeedMult
+end)
+
+JumpPwrBtn.MouseButton1Click:Connect(function()
+	State.JumpPower = State.JumpPower + 25
+	if State.JumpPower > 200 then State.JumpPower = 50 end
+	JumpPwrBtn.Text = "Jump: " .. State.JumpPower
+	pcall(function() plr.Character.Humanoid.JumpPower = State.JumpPower plr.Character.Humanoid.UseJumpPower = true end)
+end)
+
+GravityBtn.MouseButton1Click:Connect(function()
+	State.LowGravity = not State.LowGravity
+	if State.LowGravity then SetBtnOn(GravityBtn) GravityBtn.Text = "Low Gravity: ON" workspace.Gravity = 80 else SetBtnOff(GravityBtn) GravityBtn.Text = "Low Gravity: OFF" workspace.Gravity = 196.2 end
+end)
+
+TpBaseBtn.MouseButton1Click:Connect(function()
+	pcall(function()
+		-- Try to find the player's base
+		local base = workspace:FindFirstChild(plr.Name .. "'s Base") or workspace:FindFirstChild(plr.Name)
+		if base and base:FindFirstChild("HumanoidRootPart") then
+			plr.Character.HumanoidRootPart.CFrame = base.HumanoidRootPart.CFrame
+		elseif base then
+			local part = base:FindFirstChildWhichIsA("BasePart")
+			if part then plr.Character.HumanoidRootPart.CFrame = part.CFrame + Vector3.new(0, 5, 0) end
+		end
+		Notify("MeeHub", "TP to Base", 2)
+	end)
+end)
+
+TpShopBtn.MouseButton1Click:Connect(function()
+	pcall(function()
+		local shop = workspace:FindFirstChild("Shop") or workspace:FindFirstChild("shop")
+		if shop then
+			local part = shop:FindFirstChildWhichIsA("BasePart")
+			if part then plr.Character.HumanoidRootPart.CFrame = part.CFrame + Vector3.new(0, 5, 0) end
+		end
+		Notify("MeeHub", "TP to Shop", 2)
+	end)
+end)
+
+TpSpawnBtn.MouseButton1Click:Connect(function()
+	pcall(function()
+		plr.Character.HumanoidRootPart.CFrame = CFrame.new(0, 50, 0)
+		Notify("MeeHub", "TP to Spawn", 2)
+	end)
+end)
+
+FullBrightBtn.MouseButton1Click:Connect(function()
+	State.FullBright = not State.FullBright
+	if State.FullBright then
+		SetBtnOn(FullBrightBtn) FullBrightBtn.Text = "Full Bright: ON"
+		Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+		Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+		Lighting.Brightness = 2
+		Lighting.GlobalShadows = false
+		Lighting.FogEnd = 1e6
+	else
+		SetBtnOff(FullBrightBtn) FullBrightBtn.Text = "Full Bright: OFF"
+		Lighting.Ambient = OldLighting.Ambient
+		Lighting.OutdoorAmbient = OldLighting.OutdoorAmbient
+		Lighting.Brightness = OldLighting.Brightness
+		Lighting.GlobalShadows = OldLighting.GlobalShadows
+		Lighting.FogEnd = OldLighting.FogEnd
+	end
+end)
+
+NoFogBtn.MouseButton1Click:Connect(function()
+	State.NoFog = not State.NoFog
+	if State.NoFog then SetBtnOn(NoFogBtn) NoFogBtn.Text = "No Fog: ON" Lighting.FogEnd = 1e9 else SetBtnOff(NoFogBtn) NoFogBtn.Text = "No Fog: OFF" Lighting.FogEnd = OldLighting.FogEnd end
+end)
+
+FOVBtn.MouseButton1Click:Connect(function()
+	State.FOV = State.FOV + 10
+	if State.FOV > 120 then State.FOV = 40 end
+	Camera.FieldOfView = State.FOV
+	FOVBtn.Text = "FOV: " .. State.FOV
+end)
+
+InvisBtn.MouseButton1Click:Connect(function()
+	State.Invisible = not State.Invisible
+	local trans = State.Invisible and 1 or 0
+	if State.Invisible then SetBtnOn(InvisBtn) InvisBtn.Text = "Invisible: ON" else SetBtnOff(InvisBtn) InvisBtn.Text = "Invisible: OFF" end
+	pcall(function()
+		for _, p in pairs(plr.Character:GetDescendants()) do
+			if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then p.Transparency = trans
+			elseif p:IsA("Decal") then p.Transparency = trans end
+		end
+	end)
+end)
+
+SmallCharBtn.MouseButton1Click:Connect(function()
+	pcall(function()
+		local hum = plr.Character.Humanoid
+		local scales = {"HeadScale", "BodyDepthScale", "BodyWidthScale", "BodyHeightScale"}
+		for _, s in ipairs(scales) do
+			local sv = hum:FindFirstChild(s)
+			if sv then sv.Value = sv.Value == 0.5 and 1 or 0.5 end
+		end
+	end)
+end)
+
+RespawnBtn.MouseButton1Click:Connect(function()
+	pcall(function() plr.Character:BreakJoints() Notify("MeeHub", "Respawned!", 2) end)
+end)
+
+--------------------------------------------------------------
+-- BUTTON HANDLERS: PAGE 4 (MISC)
+--------------------------------------------------------------
+AntiAFKBtn.MouseButton1Click:Connect(function()
+	State.AntiAFK = not State.AntiAFK
+	if State.AntiAFK then
+		SetBtnOn(AntiAFKBtn) AntiAFKBtn.Text = "Anti-AFK: ON"
+		pcall(function()
+			local VU = game:GetService("VirtualUser")
+			plr.Idled:Connect(function() VU:CaptureController() VU:ClickButton2(Vector2.new()) end)
+		end)
+		Notify("MeeHub", "Anti-AFK enabled!", 3)
+	else
+		SetBtnOff(AntiAFKBtn) AntiAFKBtn.Text = "Anti-AFK: OFF"
+	end
+end)
+
+AntiSlowBtn.MouseButton1Click:Connect(function()
+	State.AntiSlow = not State.AntiSlow
+	if State.AntiSlow then SetBtnOn(AntiSlowBtn) AntiSlowBtn.Text = "Anti-Slow: ON" else SetBtnOff(AntiSlowBtn) AntiSlowBtn.Text = "Anti-Slow: OFF" end
+end)
+
+AntiVoidBtn.MouseButton1Click:Connect(function()
+	State.AntiVoid = not State.AntiVoid
+	if State.AntiVoid then SetBtnOn(AntiVoidBtn) AntiVoidBtn.Text = "Anti-Void: ON" else SetBtnOff(AntiVoidBtn) AntiVoidBtn.Text = "Anti-Void: OFF" end
+end)
+
+ServerHopBtn.MouseButton1Click:Connect(function()
+	Notify("MeeHub", "Finding new server...", 3)
+	pcall(function() game:GetService("TeleportService"):Teleport(game.PlaceId, plr) end)
+end)
+
+RejoinBtn.MouseButton1Click:Connect(function()
+	Notify("MeeHub", "Rejoining...", 3)
+	task.wait(1)
+	pcall(function() game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, plr) end)
+end)
+
+CopyJobBtn.MouseButton1Click:Connect(function()
+	pcall(function()
+		local cf = setclipboard or toclipboard or set_clipboard
+		if cf then cf(game.JobId) Notify("MeeHub", "JobId copied!", 3) end
+	end)
+end)
+
+FPSDisplayBtn.MouseButton1Click:Connect(function()
+	State.FPSDisplay = not State.FPSDisplay
+	FPSLabel.Visible = State.FPSDisplay
+	if State.FPSDisplay then SetBtnOn(FPSDisplayBtn) FPSDisplayBtn.Text = "FPS Display: ON" else SetBtnOff(FPSDisplayBtn) FPSDisplayBtn.Text = "FPS Display: OFF" end
+end)
+
+LagReduceBtn.MouseButton1Click:Connect(function()
+	State.LagReduce = not State.LagReduce
+	if State.LagReduce then
+		SetBtnOn(LagReduceBtn) LagReduceBtn.Text = "Reduce Lag: ON"
+		settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+		Notify("MeeHub", "Graphics reduced!", 3)
+	else
+		SetBtnOff(LagReduceBtn) LagReduceBtn.Text = "Reduce Lag: OFF"
+		settings().Rendering.QualityLevel = Enum.QualityLevel.Automatic
+	end
+end)
+
+NoParticlesBtn.MouseButton1Click:Connect(function()
+	State.NoParticles = not State.NoParticles
+	local enabled = not State.NoParticles
+	if State.NoParticles then SetBtnOn(NoParticlesBtn) NoParticlesBtn.Text = "No Particles: ON" else SetBtnOff(NoParticlesBtn) NoParticlesBtn.Text = "No Particles: OFF" end
+	pcall(function()
+		for _, v in pairs(workspace:GetDescendants()) do
+			if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") then v.Enabled = enabled end
+		end
+	end)
+end)
+
+MutTimerBtn.MouseButton1Click:Connect(function()
+	State.MutTimer = not State.MutTimer
+	MutLabel.Visible = State.MutTimer
+	if State.MutTimer then SetBtnOn(MutTimerBtn) MutTimerBtn.Text = "Mut Timer: ON" else SetBtnOff(MutTimerBtn) MutTimerBtn.Text = "Mut Timer: OFF" end
+end)
+
+MutAlertBtn.MouseButton1Click:Connect(function()
+	State.MutAlert = not State.MutAlert
+	if State.MutAlert then SetBtnOn(MutAlertBtn) MutAlertBtn.Text = "Mut Alert: ON" else SetBtnOff(MutAlertBtn) MutAlertBtn.Text = "Mut Alert: OFF" end
+end)
+
+InfYieldBtn.MouseButton1Click:Connect(function()
+	Notify("MeeHub", "Loading Infinite Yield...", 3)
+	pcall(function() loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))() end)
+end)
+
+--------------------------------------------------------------
+-- MAIN LOOP
+--------------------------------------------------------------
+Connections.MainLoop = RS.Heartbeat:Connect(function()
+	if IsUiClosed then return end
+	pcall(function()
+		local char = plr.Character
+		if not char then return end
+		local humanoid = char:FindFirstChild("Humanoid")
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+
+		-- Speed
+		if State.Speed and humanoid then humanoid.WalkSpeed = 16 * State.SpeedMult end
+
+		-- Fly
+		if State.Fly and FlyBV and FlyBG and hrp then
+			FlyBG.CFrame = Camera.CFrame
+			local dir = Vector3.zero
+			if UIS:IsKeyDown(Enum.KeyCode.W) then dir = dir + Camera.CFrame.LookVector end
+			if UIS:IsKeyDown(Enum.KeyCode.S) then dir = dir - Camera.CFrame.LookVector end
+			if UIS:IsKeyDown(Enum.KeyCode.A) then dir = dir - Camera.CFrame.RightVector end
+			if UIS:IsKeyDown(Enum.KeyCode.D) then dir = dir + Camera.CFrame.RightVector end
+			if UIS:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0, 1, 0) end
+			if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then dir = dir - Vector3.new(0, 1, 0) end
+			FlyBV.Velocity = dir.Magnitude > 0 and dir.Unit * State.FlySpeed or Vector3.zero
+		end
+
+		-- Noclip
+		if State.Noclip and char then
+			for _, p in pairs(char:GetDescendants()) do
+				if p:IsA("BasePart") then p.CanCollide = false end
+			end
+		end
+
+		-- Anti-Slow
+		if State.AntiSlow and humanoid and humanoid.WalkSpeed < 16 then humanoid.WalkSpeed = 16 end
+
+		-- Anti-Void
+		if State.AntiVoid and hrp and hrp.Position.Y < -50 then hrp.CFrame = CFrame.new(0, 50, 0) end
+	end)
+end)
+
+--------------------------------------------------------------
+-- AUTO FARM LOOPS
+--------------------------------------------------------------
+-- Auto Summon
+task.spawn(function()
+	while not IsUiClosed do
+		if State.AutoSummon then
+			pcall(function()
+				if State.AutoSummonX10 then
+					FireRemote("summon", 10)
+					FireRemote("roll", 10)
+					FireRemote("summon", "x10")
+					FireRemote("roll", "x10")
+				else
+					FireRemote("summon")
+					FireRemote("roll")
+					FireRemote("summon", 1)
+					FireRemote("roll", 1)
+				end
+			end)
+			task.wait(State.SummonDelay)
+		else
+			task.wait(0.5)
+		end
+	end
+end)
+
+-- Auto Merge
+task.spawn(function()
+	while not IsUiClosed do
+		if State.AutoMerge then
+			pcall(function()
+				FireRemote("merge")
+				FireRemote("mergeall")
+				FireRemote("merge_all")
+				-- Try clicking merge buttons in PlayerGui
+				pcall(function()
+					for _, v in pairs(plr.PlayerGui:GetDescendants()) do
+						if v:IsA("TextButton") and v.Name:lower():find("merge") and v.Visible then
+							pcall(function() v.MouseButton1Click:Fire() end)
+						end
+					end
+				end)
+			end)
+			task.wait(1)
+		else
+			task.wait(0.5)
+		end
+	end
+end)
+
+-- Auto Upgrade
+task.spawn(function()
+	while not IsUiClosed do
+		if State.AutoUpgBase or State.AutoUpgLuck or State.AutoUpgDmg then
+			pcall(function()
+				if State.AutoUpgBase then
+					FireRemote("upgrade", "base")
+					FireRemote("upgrade", "Base")
+					FireRemote("upgradebase")
+				end
+				if State.AutoUpgLuck then
+					FireRemote("upgrade", "luck")
+					FireRemote("upgrade", "Luck")
+					FireRemote("upgradeluck")
+				end
+				if State.AutoUpgDmg then
+					FireRemote("upgrade", "damage")
+					FireRemote("upgrade", "Damage")
+					FireRemote("upgradedamage")
+				end
+			end)
+			task.wait(0.5)
+		else
+			task.wait(0.5)
+		end
+	end
+end)
+
+-- Auto Collect
+task.spawn(function()
+	while not IsUiClosed do
+		if State.AutoCollect then
+			pcall(function()
+				FireRemote("collect")
+				FireRemote("claim")
+				-- Try touching collectible parts
+				pcall(function()
+					local char = plr.Character
+					if char and char:FindFirstChild("HumanoidRootPart") then
+						for _, v in pairs(workspace:GetDescendants()) do
+							if v:IsA("BasePart") and (v.Name:lower():find("collect") or v.Name:lower():find("coin") or v.Name:lower():find("cash") or v.Name:lower():find("drop")) then
+								if (v.Position - char.HumanoidRootPart.Position).Magnitude < 100 then
+									firetouchinterest(char.HumanoidRootPart, v, 0)
+									task.wait()
+									firetouchinterest(char.HumanoidRootPart, v, 1)
+								end
+							end
+						end
+					end
+				end)
+			end)
+			task.wait(1)
+		else
+			task.wait(0.5)
+		end
+	end
+end)
+
+-- Auto Rebirth
+task.spawn(function()
+	while not IsUiClosed do
+		if State.AutoRebirth then
+			pcall(function()
+				FireRemote("rebirth")
+				FireRemote("prestige")
+			end)
+			task.wait(2)
+		else
+			task.wait(0.5)
+		end
+	end
+end)
+
+-- Auto Trait / Craft / Clone
+task.spawn(function()
+	while not IsUiClosed do
+		if State.AutoTrait then pcall(function() FireRemote("trait") FireRemote("roll_trait") end) end
+		if State.AutoCraft then pcall(function() FireRemote("craft") end) end
+		if State.AutoClone then pcall(function() FireRemote("clone") end) end
+		task.wait(1)
+	end
+end)
+
+-- Auto Start Wave
+task.spawn(function()
+	while not IsUiClosed do
+		if State.AutoStart then
+			pcall(function()
+				FireRemote("start")
+				FireRemote("startwave")
+				FireRemote("start_wave")
+				-- Try clicking start buttons
+				pcall(function()
+					for _, v in pairs(plr.PlayerGui:GetDescendants()) do
+						if v:IsA("TextButton") and (v.Name:lower():find("start") or v.Text:lower():find("start")) and v.Visible then
+							pcall(function() v.MouseButton1Click:Fire() end)
+						end
+					end
+				end)
+			end)
+			task.wait(3)
+		else
+			task.wait(0.5)
+		end
+	end
+end)
+
+-- Delete Common units
+task.spawn(function()
+	while not IsUiClosed do
+		if State.AutoDelete then
+			pcall(function()
+				FireRemote("sell", "Common")
+				FireRemote("delete", "Common")
+			end)
+			task.wait(2)
+		else
+			task.wait(0.5)
+		end
+	end
+end)
+
+--------------------------------------------------------------
+-- MUTATION TIMER
+--------------------------------------------------------------
+task.spawn(function()
+	while not IsUiClosed do
+		if State.MutTimer or State.MutAlert then
+			local now = os.date("*t")
+			local min = now.min
+			local sec = now.sec
+			
+			-- Mutations happen at :15, :30, :45
+			local nextMut
+			if min < 15 then nextMut = 15
+			elseif min < 30 then nextMut = 30
+			elseif min < 45 then nextMut = 45
+			else nextMut = 60 end -- next hour :00 â†’ :15
+			
+			local remaining
+			if nextMut == 60 then
+				remaining = (60 - min) * 60 + (15 * 60) - sec
+			else
+				remaining = (nextMut - min) * 60 - sec
+			end
+			
+			local minsLeft = math.floor(remaining / 60)
+			local secsLeft = remaining % 60
+			
+			local mutNames = {"Dragonborn (:15)", "Beast (:30)", "Arrancar (:45)"}
+			local mutIndex = nextMut == 15 and 1 or (nextMut == 30 and 2 or 3)
+			if nextMut == 60 then mutIndex = 1 end
+			
+			if State.MutTimer then
+				MutLabel.Text = string.format("â° %s in %02d:%02d", mutNames[mutIndex], minsLeft, secsLeft)
+			end
+			
+			-- Alert when 30 seconds before mutation
+			if State.MutAlert and remaining <= 30 and remaining > 28 then
+				Notify("ðŸ”¥ MUTATION SOON!", mutNames[mutIndex] .. " in 30 seconds!", 5)
+			end
+		end
+		task.wait(1)
+	end
+end)
+
+-- FPS Counter
+task.spawn(function()
+	while not IsUiClosed do
+		if State.FPSDisplay then
+			pcall(function()
+				local fps = math.floor(1 / RS.Heartbeat:Wait())
+				local ping = math.floor(plr:GetNetworkPing() * 1000)
+				FPSLabel.Text = "FPS: " .. fps .. " | Ping: " .. ping .. "ms"
+			end)
+		end
+		task.wait(0.5)
+	end
+end)
+
+--------------------------------------------------------------
+-- MINIMIZE / CLOSE
+--------------------------------------------------------------
+MinBtn.MouseButton1Click:Connect(function()
+	IsGuiVisible = not IsGuiVisible
+	ContentArea.Visible = IsGuiVisible
+	TabBar.Visible = IsGuiVisible
+	StatusBar.Visible = IsGuiVisible
+	MainFrame.Size = IsGuiVisible and UDim2.new(0.42, 0, 0.58, 0) or UDim2.new(0.42, 0, 0, 42)
+end)
+
+CloseBtn.MouseButton1Click:Connect(function()
+	IsUiClosed = true
+	ClearESP()
+	State.Noclip = false
+	State.Speed = false
+	State.Fly = false
+	State.AutoSummon = false
+	State.AutoMerge = false
+	
+	if FlyBV then FlyBV:Destroy() end
+	if FlyBG then FlyBG:Destroy() end
+
+	Lighting.Ambient = OldLighting.Ambient
+	Lighting.OutdoorAmbient = OldLighting.OutdoorAmbient
+	Lighting.Brightness = OldLighting.Brightness
+	Lighting.FogEnd = OldLighting.FogEnd
+	Lighting.GlobalShadows = OldLighting.GlobalShadows
+	workspace.Gravity = 196.2
+	Camera.FieldOfView = 70
+
+	for _, conn in pairs(Connections) do pcall(function() conn:Disconnect() end) end
+	pcall(function() plr.Character.Humanoid.WalkSpeed = 16 end)
+
+	MeeHub:Destroy()
+	getgenv()["MeeHubDefend"] = nil
+end)
+
+--------------------------------------------------------------
+-- KEYBOARD SHORTCUTS
+--------------------------------------------------------------
+UIS.InputBegan:Connect(function(input, gp)
+	if gp then return end
+	if input.KeyCode == Enum.KeyCode.F1 then MainFrame.Visible = not MainFrame.Visible
+	elseif input.KeyCode == Enum.KeyCode.F2 then AutoSummonBtn.MouseButton1Click:Fire()
+	elseif input.KeyCode == Enum.KeyCode.F3 then AutoMergeBtn.MouseButton1Click:Fire()
+	elseif input.KeyCode == Enum.KeyCode.F4 then AutoUpgBaseBtn.MouseButton1Click:Fire()
+	elseif input.KeyCode == Enum.KeyCode.F5 then SpeedBtn.MouseButton1Click:Fire()
+	end
+end)
+
+--------------------------------------------------------------
+-- RAINBOW STROKE
+--------------------------------------------------------------
+task.spawn(function()
+	local hue = 0
+	while not IsUiClosed do
+		hue = (hue + 0.005) % 1
+		MainStroke.Color = Color3.fromHSV(hue, 0.8, 1)
+		task.wait(0.03)
+	end
+end)
+
+--------------------------------------------------------------
+-- LOADED
+--------------------------------------------------------------
+print("âœ¨ MeeHub v1.0 â€” Defend ur base with anime â€” Loaded!")
+Notify("âœ¨ MeeHub v1.0", "Loaded! 4 pages, 40+ features!\nF1-F5 shortcuts ready!\nMutation Timer available!", 5)
