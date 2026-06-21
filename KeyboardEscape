@@ -23,7 +23,8 @@
 --------------------------------------------------------------
 if not game:IsLoaded() then game.Loaded:Wait() end
 
-local env = (typeof(getgenv) == "function" and getgenv()) or _G
+local env = _G
+pcall(function() if getgenv then env = getgenv() end end)
 
 if env["MeeHubSpeed"] == nil then
 	env["MeeHubSpeed"] = true
@@ -60,7 +61,9 @@ if RS:IsStudio() then
 	MeeHub.Parent = plr.PlayerGui
 else
 	local ok = pcall(function()
-		MeeHub.Parent = (typeof(gethui) == "function" and gethui()) or game:GetService("CoreGui")
+		local target = nil
+		pcall(function() if gethui then target = gethui() end end)
+		MeeHub.Parent = target or game:GetService("CoreGui")
 	end)
 	if not ok then
 		local ok2 = pcall(function() MeeHub.Parent = game:GetService("CoreGui") end)
