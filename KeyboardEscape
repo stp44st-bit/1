@@ -1,0 +1,1086 @@
+--[[
+	MeeHub v1.0 â€” +1 Speed Keyboard Escape | Candy & Chocolate
+	Incremental Speed + Obby Helper GUI
+	
+	à¸Ÿà¸µà¹€à¸ˆà¸­à¸£à¹Œ: 4 à¸«à¸™à¹‰à¸²
+	  Page 1: Auto Farm (Auto Walk, Auto Treadmill, Auto Win, Auto Rebirth)
+	  Page 2: Teleport (TP Stage 1-13, TP Treadmill, TP Win Pad)
+	  Page 3: Player (Speed, Fly, Noclip, Jump Power, Anti-AFK)
+	  Page 4: Misc (FPS Display, Reduce Lag, Server Hop, Rejoin)
+	
+	à¸›à¸¸à¹ˆà¸¡à¸¥à¸±à¸”:
+	  F1 = à¹€à¸›à¸´à¸”/à¸›à¸´à¸” GUI
+	  F2 = Auto Walk
+	  F3 = Auto Treadmill
+	  F4 = Auto Win
+	  F5 = Speed Boost
+	
+	à¸£à¸­à¸‡à¸£à¸±à¸š Xeno, Solara, Wave, Fluxus à¸¯à¸¥à¸¯
+]]
+
+--------------------------------------------------------------
+-- ANTI-DUPLICATE
+--------------------------------------------------------------
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+local env = (typeof(getgenv) == "function" and getgenv()) or _G
+
+if env["MeeHubSpeed"] == nil then
+	env["MeeHubSpeed"] = true
+else
+	game:GetService("StarterGui"):SetCore("SendNotification", {
+		Title = "âš ï¸ MeeHub",
+		Text = "GUI is already running!",
+		Duration = 5
+	})
+	return
+end
+
+--------------------------------------------------------------
+-- SERVICES
+--------------------------------------------------------------
+local Players = game:GetService("Players")
+local RS = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+local StarterGui = game:GetService("StarterGui")
+local TweenService = game:GetService("TweenService")
+local RepStorage = game:GetService("ReplicatedStorage")
+local Camera = workspace.CurrentCamera
+
+local plr = Players.LocalPlayer
+local mouse = plr:GetMouse()
+
+--------------------------------------------------------------
+-- SCREENGUI
+--------------------------------------------------------------
+local MeeHub = Instance.new("ScreenGui")
+MeeHub.Name = "MeeHub_Speed"
+if RS:IsStudio() then
+	MeeHub.Parent = plr.PlayerGui
+else
+	local ok = pcall(function()
+		MeeHub.Parent = (typeof(gethui) == "function" and gethui()) or game:GetService("CoreGui")
+	end)
+	if not ok then
+		local ok2 = pcall(function() MeeHub.Parent = game:GetService("CoreGui") end)
+		if not ok2 then MeeHub.Parent = plr.PlayerGui end
+	end
+end
+MeeHub.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+MeeHub.ResetOnSpawn = false
+
+--------------------------------------------------------------
+-- MAIN FRAME â€” Candy/Chocolate Theme
+--------------------------------------------------------------
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Parent = MeeHub
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+MainFrame.Size = UDim2.new(0.42, 0, 0.58, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(30, 15, 20)
+MainFrame.BackgroundTransparency = 0.03
+MainFrame.BorderSizePixel = 0
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 14)
+MainCorner.Parent = MainFrame
+
+local MainStroke = Instance.new("UIStroke")
+MainStroke.Color = Color3.fromRGB(220, 100, 160)
+MainStroke.Thickness = 2.5
+MainStroke.Transparency = 0.1
+MainStroke.Parent = MainFrame
+
+--------------------------------------------------------------
+-- TITLE BAR â€” Pink/Chocolate gradient
+--------------------------------------------------------------
+local TitleBar = Instance.new("Frame")
+TitleBar.Name = "TitleBar"
+TitleBar.Parent = MainFrame
+TitleBar.Size = UDim2.new(1, 0, 0, 42)
+TitleBar.BackgroundColor3 = Color3.fromRGB(200, 80, 130)
+TitleBar.BorderSizePixel = 0
+
+local TitleGradient = Instance.new("UIGradient")
+TitleGradient.Color = ColorSequence.new{
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(230, 100, 160)),
+	ColorSequenceKeypoint.new(0.5, Color3.fromRGB(180, 70, 120)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(120, 50, 40))
+}
+TitleGradient.Parent = TitleBar
+
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 14)
+TitleCorner.Parent = TitleBar
+
+local TitleFix = Instance.new("Frame")
+TitleFix.Parent = TitleBar
+TitleFix.Size = UDim2.new(1, 0, 0, 10)
+TitleFix.Position = UDim2.new(0, 0, 1, -10)
+TitleFix.BackgroundColor3 = Color3.fromRGB(120, 50, 40)
+TitleFix.BorderSizePixel = 0
+
+local TitleText = Instance.new("TextLabel")
+TitleText.Parent = TitleBar
+TitleText.Size = UDim2.new(0.65, 0, 1, 0)
+TitleText.Position = UDim2.new(0.03, 0, 0, 0)
+TitleText.BackgroundTransparency = 1
+TitleText.Font = Enum.Font.GothamBlack
+TitleText.Text = "ðŸ« MeeHub â€” Speed Escape"
+TitleText.TextColor3 = Color3.fromRGB(255, 255, 255)
+TitleText.TextScaled = true
+TitleText.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Close
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Parent = TitleBar
+CloseBtn.Size = UDim2.new(0, 32, 0, 32)
+CloseBtn.Position = UDim2.new(1, -36, 0, 5)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+CloseBtn.BorderSizePixel = 0
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.TextScaled = true
+Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 8)
+
+-- Minimize
+local MinBtn = Instance.new("TextButton")
+MinBtn.Parent = TitleBar
+MinBtn.Size = UDim2.new(0, 32, 0, 32)
+MinBtn.Position = UDim2.new(1, -72, 0, 5)
+MinBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 65)
+MinBtn.BorderSizePixel = 0
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.Text = "_"
+MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MinBtn.TextScaled = true
+Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 8)
+
+--------------------------------------------------------------
+-- TAB BAR
+--------------------------------------------------------------
+local TabBar = Instance.new("Frame")
+TabBar.Parent = MainFrame
+TabBar.Size = UDim2.new(1, 0, 0, 30)
+TabBar.Position = UDim2.new(0, 0, 0, 44)
+TabBar.BackgroundColor3 = Color3.fromRGB(25, 15, 20)
+TabBar.BorderSizePixel = 0
+
+local tabNames = {"ðŸŽ² Auto Farm", "ðŸ“ Teleport", "ðŸƒ Player", "ðŸ”§ Misc"}
+local tabButtons = {}
+
+for i, name in ipairs(tabNames) do
+	local tab = Instance.new("TextButton")
+	tab.Name = "Tab" .. i
+	tab.Parent = TabBar
+	tab.Size = UDim2.new(0.25, 0, 1, 0)
+	tab.Position = UDim2.new(0.25 * (i - 1), 0, 0, 0)
+	tab.BackgroundColor3 = i == 1 and Color3.fromRGB(220, 100, 160) or Color3.fromRGB(40, 25, 35)
+	tab.BackgroundTransparency = i == 1 and 0 or 0.3
+	tab.BorderSizePixel = 0
+	tab.Font = Enum.Font.GothamBold
+	tab.Text = name
+	tab.TextColor3 = Color3.fromRGB(255, 255, 255)
+	tab.TextScaled = true
+	tabButtons[i] = tab
+end
+
+--------------------------------------------------------------
+-- CONTENT AREA
+--------------------------------------------------------------
+local ContentArea = Instance.new("Frame")
+ContentArea.Parent = MainFrame
+ContentArea.Size = UDim2.new(1, -16, 1, -108)
+ContentArea.Position = UDim2.new(0, 8, 0, 78)
+ContentArea.BackgroundTransparency = 1
+ContentArea.ClipsDescendants = true
+
+--------------------------------------------------------------
+-- HELPERS
+--------------------------------------------------------------
+local function CreateBtn(parent, name, text, position)
+	local btn = Instance.new("TextButton")
+	btn.Name = name
+	btn.Parent = parent
+	btn.Position = position
+	btn.Size = UDim2.new(0.31, -4, 0, 34)
+	btn.BackgroundColor3 = Color3.fromRGB(45, 30, 40)
+	btn.BorderSizePixel = 0
+	btn.Font = Enum.Font.GothamSemibold
+	btn.Text = text
+	btn.TextColor3 = Color3.fromRGB(230, 220, 225)
+	btn.TextScaled = true
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+	local s = Instance.new("UIStroke", btn)
+	s.Color = Color3.fromRGB(80, 50, 70)
+	s.Thickness = 1.2
+	return btn
+end
+
+local function BtnOn(btn)
+	btn.BackgroundColor3 = Color3.fromRGB(220, 100, 160)
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+end
+
+local function BtnOff(btn)
+	btn.BackgroundColor3 = Color3.fromRGB(45, 30, 40)
+	btn.TextColor3 = Color3.fromRGB(230, 220, 225)
+end
+
+local function Section(parent, text, position)
+	local l = Instance.new("TextLabel")
+	l.Parent = parent
+	l.Position = position
+	l.Size = UDim2.new(1, 0, 0, 22)
+	l.BackgroundTransparency = 1
+	l.Font = Enum.Font.GothamBold
+	l.Text = text
+	l.TextColor3 = Color3.fromRGB(255, 150, 200)
+	l.TextScaled = true
+	l.TextXAlignment = Enum.TextXAlignment.Left
+end
+
+local function Notify(title, text, dur)
+	pcall(function() StarterGui:SetCore("SendNotification", {Title=title, Text=text, Duration=dur or 3}) end)
+end
+
+--------------------------------------------------------------
+-- PAGE 1: AUTO FARM
+--------------------------------------------------------------
+local P1 = Instance.new("ScrollingFrame")
+P1.Name = "Page1"; P1.Parent = ContentArea
+P1.Size = UDim2.new(1, 0, 1, 0)
+P1.BackgroundTransparency = 1; P1.BorderSizePixel = 0
+P1.ScrollBarThickness = 4
+P1.ScrollBarImageColor3 = Color3.fromRGB(220, 100, 160)
+P1.CanvasSize = UDim2.new(0, 0, 0, 380)
+P1.Visible = true
+
+Section(P1, "â€” Auto Walk (Keyboard Keys) â€”", UDim2.new(0, 0, 0, 0))
+local AutoWalkBtn = CreateBtn(P1, "AutoWalk", "Auto Walk: OFF", UDim2.new(0, 0, 0, 26))
+local WalkSpeedBtn = CreateBtn(P1, "WalkSpeed", "Walk Delay: 0.1s", UDim2.new(0.33, 2, 0, 26))
+local AutoJumpBtn = CreateBtn(P1, "AutoJump", "Auto Jump: OFF", UDim2.new(0.66, 4, 0, 26))
+
+Section(P1, "â€” Auto Treadmill â€”", UDim2.new(0, 0, 0, 68))
+local AutoTreadBtn = CreateBtn(P1, "AutoTread", "Auto Tread: OFF", UDim2.new(0, 0, 0, 94))
+local TpTreadBtn = CreateBtn(P1, "TpTread", "TP Treadmill", UDim2.new(0.33, 2, 0, 94))
+local AutoClickBtn = CreateBtn(P1, "AutoClick", "Auto Click: OFF", UDim2.new(0.66, 4, 0, 94))
+
+Section(P1, "â€” Auto Progress â€”", UDim2.new(0, 0, 0, 136))
+local AutoWinBtn = CreateBtn(P1, "AutoWin", "Auto Win: OFF", UDim2.new(0, 0, 0, 162))
+local AutoRebirthBtn = CreateBtn(P1, "AutoRebirth", "Auto Rebirth: OFF", UDim2.new(0.33, 2, 0, 162))
+local AutoStageBtn = CreateBtn(P1, "AutoStage", "Auto Stage: OFF", UDim2.new(0.66, 4, 0, 162))
+
+Section(P1, "â€” Speed Farm â€”", UDim2.new(0, 0, 0, 204))
+local InfSpeedBtn = CreateBtn(P1, "InfSpeed", "Inf Speed: OFF", UDim2.new(0, 0, 0, 230))
+local SpeedMultBtn = CreateBtn(P1, "SpeedMult", "Speed x2", UDim2.new(0.33, 2, 0, 230))
+local AutoCollectBtn = CreateBtn(P1, "AutoCollect", "Auto Collect: OFF", UDim2.new(0.66, 4, 0, 230))
+
+Section(P1, "â€” Simulation â€”", UDim2.new(0, 0, 0, 272))
+local SimWalkBtn = CreateBtn(P1, "SimWalk", "Sim Walk: OFF", UDim2.new(0, 0, 0, 298))
+local SimSprintBtn = CreateBtn(P1, "SimSprint", "Sim Sprint: OFF", UDim2.new(0.33, 2, 0, 298))
+local AutoAllBtn = CreateBtn(P1, "AutoAll", "Auto ALL: OFF", UDim2.new(0.66, 4, 0, 298))
+
+--------------------------------------------------------------
+-- PAGE 2: TELEPORT
+--------------------------------------------------------------
+local P2 = Instance.new("ScrollingFrame")
+P2.Name = "Page2"; P2.Parent = ContentArea
+P2.Size = UDim2.new(1, 0, 1, 0)
+P2.BackgroundTransparency = 1; P2.BorderSizePixel = 0
+P2.ScrollBarThickness = 4
+P2.ScrollBarImageColor3 = Color3.fromRGB(220, 100, 160)
+P2.CanvasSize = UDim2.new(0, 0, 0, 500)
+P2.Visible = false
+
+Section(P2, "â€” TP to Stages â€”", UDim2.new(0, 0, 0, 0))
+local stageButtons = {}
+for row = 0, 4 do
+	for col = 0, 2 do
+		local idx = row * 3 + col + 1
+		if idx > 15 then break end
+		local label = idx <= 13 and ("Stage " .. idx) or (idx == 14 and "Win Pad" or "Spawn")
+		local btn = CreateBtn(P2, "Stage" .. idx, label, UDim2.new(col * 0.33 + (col > 0 and 0 or 0), col * 2, 0, 26 + row * 40))
+		stageButtons[idx] = btn
+	end
+end
+
+Section(P2, "â€” TP to Locations â€”", UDim2.new(0, 0, 0, 232))
+local TpShopBtn = CreateBtn(P2, "TpShop", "TP Shop", UDim2.new(0, 0, 0, 258))
+local TpRebirthBtn = CreateBtn(P2, "TpRebirth", "TP Rebirth", UDim2.new(0.33, 2, 0, 258))
+local TpStartBtn = CreateBtn(P2, "TpStart", "TP Start", UDim2.new(0.66, 4, 0, 258))
+
+local TpTreadmill2Btn = CreateBtn(P2, "TpTread2", "TP Treadmill 1", UDim2.new(0, 0, 0, 298))
+local TpTreadmill3Btn = CreateBtn(P2, "TpTread3", "TP Treadmill 2", UDim2.new(0.33, 2, 0, 298))
+local TpTreadmill4Btn = CreateBtn(P2, "TpTread4", "TP Treadmill 3", UDim2.new(0.66, 4, 0, 298))
+
+--------------------------------------------------------------
+-- PAGE 3: PLAYER
+--------------------------------------------------------------
+local P3 = Instance.new("ScrollingFrame")
+P3.Name = "Page3"; P3.Parent = ContentArea
+P3.Size = UDim2.new(1, 0, 1, 0)
+P3.BackgroundTransparency = 1; P3.BorderSizePixel = 0
+P3.ScrollBarThickness = 4
+P3.ScrollBarImageColor3 = Color3.fromRGB(220, 100, 160)
+P3.CanvasSize = UDim2.new(0, 0, 0, 320)
+P3.Visible = false
+
+Section(P3, "â€” Movement â€”", UDim2.new(0, 0, 0, 0))
+local SpeedBoostBtn = CreateBtn(P3, "SpeedBoost", "Speed: OFF", UDim2.new(0, 0, 0, 26))
+local FlyBtn = CreateBtn(P3, "Fly", "Fly: OFF", UDim2.new(0.33, 2, 0, 26))
+local NoclipPlayerBtn = CreateBtn(P3, "Noclip", "Noclip: OFF", UDim2.new(0.66, 4, 0, 26))
+
+local SpeedValBtn = CreateBtn(P3, "SpeedVal", "Speed: x2", UDim2.new(0, 0, 0, 66))
+local JumpPwrBtn = CreateBtn(P3, "JumpPwr", "Jump: 50", UDim2.new(0.33, 2, 0, 66))
+local GravBtn = CreateBtn(P3, "Grav", "Low Grav: OFF", UDim2.new(0.66, 4, 0, 66))
+
+Section(P3, "â€” Visuals â€”", UDim2.new(0, 0, 0, 108))
+local FullBrightBtn = CreateBtn(P3, "FullBright", "Full Bright: OFF", UDim2.new(0, 0, 0, 134))
+local NoFogBtn = CreateBtn(P3, "NoFog", "No Fog: OFF", UDim2.new(0.33, 2, 0, 134))
+local FOVBtn = CreateBtn(P3, "FOV", "FOV: 70", UDim2.new(0.66, 4, 0, 134))
+
+Section(P3, "â€” Character â€”", UDim2.new(0, 0, 0, 176))
+local InvisBtn = CreateBtn(P3, "Invis", "Invisible: OFF", UDim2.new(0, 0, 0, 202))
+local SmallBtn = CreateBtn(P3, "Small", "Small Char", UDim2.new(0.33, 2, 0, 202))
+local RespawnBtn = CreateBtn(P3, "Respawn", "Respawn", UDim2.new(0.66, 4, 0, 202))
+
+--------------------------------------------------------------
+-- PAGE 4: MISC
+--------------------------------------------------------------
+local P4 = Instance.new("ScrollingFrame")
+P4.Name = "Page4"; P4.Parent = ContentArea
+P4.Size = UDim2.new(1, 0, 1, 0)
+P4.BackgroundTransparency = 1; P4.BorderSizePixel = 0
+P4.ScrollBarThickness = 4
+P4.ScrollBarImageColor3 = Color3.fromRGB(220, 100, 160)
+P4.CanvasSize = UDim2.new(0, 0, 0, 300)
+P4.Visible = false
+
+Section(P4, "â€” Anti-Kick â€”", UDim2.new(0, 0, 0, 0))
+local AntiAFKBtn = CreateBtn(P4, "AntiAFK", "Anti-AFK: OFF", UDim2.new(0, 0, 0, 26))
+local AntiSlowBtn = CreateBtn(P4, "AntiSlow", "Anti-Slow: OFF", UDim2.new(0.33, 2, 0, 26))
+local AntiVoidBtn = CreateBtn(P4, "AntiVoid", "Anti-Void: OFF", UDim2.new(0.66, 4, 0, 26))
+
+Section(P4, "â€” Server â€”", UDim2.new(0, 0, 0, 68))
+local ServerHopBtn = CreateBtn(P4, "ServerHop", "Server Hop", UDim2.new(0, 0, 0, 94))
+local RejoinBtn = CreateBtn(P4, "Rejoin", "Rejoin", UDim2.new(0.33, 2, 0, 94))
+local CopyJobBtn = CreateBtn(P4, "CopyJob", "Copy JobId", UDim2.new(0.66, 4, 0, 94))
+
+Section(P4, "â€” Performance â€”", UDim2.new(0, 0, 0, 136))
+local FPSBtn = CreateBtn(P4, "FPS", "FPS Display: OFF", UDim2.new(0, 0, 0, 162))
+local LagBtn = CreateBtn(P4, "Lag", "Reduce Lag: OFF", UDim2.new(0.33, 2, 0, 162))
+local NoPartBtn = CreateBtn(P4, "NoPart", "No Particles: OFF", UDim2.new(0.66, 4, 0, 162))
+
+Section(P4, "â€” Extras â€”", UDim2.new(0, 0, 0, 204))
+local InfYieldBtn = CreateBtn(P4, "InfYield", "Infinite Yield", UDim2.new(0, 0, 0, 230))
+local ChatSpamBtn = CreateBtn(P4, "ChatSpam", "Chat Spam: OFF", UDim2.new(0.33, 2, 0, 230))
+local SpeedInfoBtn = CreateBtn(P4, "SpeedInfo", "Speed Info: OFF", UDim2.new(0.66, 4, 0, 230))
+
+-- Status bar
+local StatusBar = Instance.new("TextLabel")
+StatusBar.Parent = MainFrame
+StatusBar.Size = UDim2.new(1, 0, 0, 24)
+StatusBar.Position = UDim2.new(0, 0, 1, -24)
+StatusBar.BackgroundColor3 = Color3.fromRGB(25, 15, 20)
+StatusBar.Font = Enum.Font.Gotham
+StatusBar.Text = "  ðŸ« MeeHub | F1=GUI | F2=Walk | F3=Tread | F4=Win | F5=Speed"
+StatusBar.TextColor3 = Color3.fromRGB(170, 140, 155)
+StatusBar.TextScaled = true
+StatusBar.TextXAlignment = Enum.TextXAlignment.Left
+StatusBar.BorderSizePixel = 0
+Instance.new("UICorner", StatusBar).CornerRadius = UDim.new(0, 14)
+
+-- FPS overlay
+local FPSLabel = Instance.new("TextLabel")
+FPSLabel.Parent = MeeHub
+FPSLabel.Size = UDim2.new(0, 140, 0, 22)
+FPSLabel.Position = UDim2.new(0, 5, 0, 5)
+FPSLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+FPSLabel.BackgroundTransparency = 0.4
+FPSLabel.Font = Enum.Font.GothamBold
+FPSLabel.Text = "FPS: -- | Ping: --"
+FPSLabel.TextColor3 = Color3.fromRGB(255, 150, 200)
+FPSLabel.TextScaled = true
+FPSLabel.Visible = false
+FPSLabel.BorderSizePixel = 0
+Instance.new("UICorner", FPSLabel).CornerRadius = UDim.new(0, 6)
+
+-- Speed Info overlay
+local SpeedLabel = Instance.new("TextLabel")
+SpeedLabel.Parent = MeeHub
+SpeedLabel.Size = UDim2.new(0, 160, 0, 22)
+SpeedLabel.Position = UDim2.new(0, 5, 0, 30)
+SpeedLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+SpeedLabel.BackgroundTransparency = 0.4
+SpeedLabel.Font = Enum.Font.GothamBold
+SpeedLabel.Text = "Speed: -- | Walk: --"
+SpeedLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+SpeedLabel.TextScaled = true
+SpeedLabel.Visible = false
+SpeedLabel.BorderSizePixel = 0
+Instance.new("UICorner", SpeedLabel).CornerRadius = UDim.new(0, 6)
+
+--------------------------------------------------------------
+-- STATE
+--------------------------------------------------------------
+local Pages = {P1, P2, P3, P4}
+local IsGuiVisible = true
+local IsUiClosed = false
+
+local S = {
+	AutoWalk = false, WalkDelay = 0.1, AutoJump = false,
+	AutoTread = false, AutoClick = false,
+	AutoWin = false, AutoRebirth = false, AutoStage = false,
+	InfSpeed = false, SpeedMultVal = 2, AutoCollect = false,
+	SimWalk = false, SimSprint = false, AutoAll = false,
+	Speed = false, SpeedMult = 2, Fly = false, FlySpeed = 60,
+	Noclip = false, JumpPower = 50, LowGrav = false,
+	FullBright = false, NoFog = false, FOV = 70, Invisible = false,
+	AntiAFK = false, AntiSlow = false, AntiVoid = false,
+	FPSDisplay = false, LagReduce = false, NoParticles = false,
+	ChatSpam = false, SpeedInfo = false,
+}
+
+local Conns = {}
+local FlyBV, FlyBG = nil, nil
+local OldLight = {
+	Ambient = Lighting.Ambient, OutdoorAmbient = Lighting.OutdoorAmbient,
+	Brightness = Lighting.Brightness, FogEnd = Lighting.FogEnd, GlobalShadows = Lighting.GlobalShadows,
+}
+
+--------------------------------------------------------------
+-- TAB SWITCHING
+--------------------------------------------------------------
+local function SwitchTab(n)
+	for i, p in ipairs(Pages) do
+		p.Visible = (i == n)
+		tabButtons[i].BackgroundColor3 = (i == n) and Color3.fromRGB(220, 100, 160) or Color3.fromRGB(40, 25, 35)
+		tabButtons[i].BackgroundTransparency = (i == n) and 0 or 0.3
+	end
+end
+for i, t in ipairs(tabButtons) do t.MouseButton1Click:Connect(function() SwitchTab(i) end) end
+
+--------------------------------------------------------------
+-- REMOTE FINDER (cached, async)
+--------------------------------------------------------------
+local CachedRemotes = {}
+local function FindRemote(name)
+	if CachedRemotes[name] then return CachedRemotes[name] end
+	local r = nil
+	pcall(function()
+		for _, v in pairs(RepStorage:GetDescendants()) do
+			if (v:IsA("RemoteEvent") or v:IsA("RemoteFunction")) and v.Name:lower():find(name:lower()) then
+				r = v; break
+			end
+		end
+	end)
+	if r then CachedRemotes[name] = r end
+	return r
+end
+
+local function Fire(name, ...)
+	local r = FindRemote(name)
+	if r then pcall(function()
+		if r:IsA("RemoteEvent") then r:FireServer(...) else r:InvokeServer(...) end
+	end) return true end
+	return false
+end
+
+-- Pre-cache
+task.spawn(function()
+	task.wait(2)
+	for _, n in ipairs({"walk","step","speed","win","rebirth","treadmill","collect","stage","click","claim"}) do
+		FindRemote(n); task.wait(0.1)
+	end
+end)
+
+--------------------------------------------------------------
+-- SMART TP HELPER
+--------------------------------------------------------------
+local function SafeTP(pos)
+	pcall(function()
+		local char = plr.Character
+		if char and char:FindFirstChild("HumanoidRootPart") then
+			char.HumanoidRootPart.CFrame = CFrame.new(pos)
+		end
+	end)
+end
+
+local function FindPartByName(name)
+	for _, v in pairs(workspace:GetDescendants()) do
+		if v:IsA("BasePart") and v.Name:lower():find(name:lower()) then
+			return v
+		end
+	end
+	return nil
+end
+
+--------------------------------------------------------------
+-- PAGE 1: AUTO FARM HANDLERS
+--------------------------------------------------------------
+AutoWalkBtn.MouseButton1Click:Connect(function()
+	S.AutoWalk = not S.AutoWalk
+	if S.AutoWalk then BtnOn(AutoWalkBtn) AutoWalkBtn.Text = "Auto Walk: ON" else BtnOff(AutoWalkBtn) AutoWalkBtn.Text = "Auto Walk: OFF" end
+end)
+
+WalkSpeedBtn.MouseButton1Click:Connect(function()
+	if S.WalkDelay == 0.1 then S.WalkDelay = 0.05
+	elseif S.WalkDelay == 0.05 then S.WalkDelay = 0.02
+	elseif S.WalkDelay == 0.02 then S.WalkDelay = 0.01
+	else S.WalkDelay = 0.1 end
+	WalkSpeedBtn.Text = "Walk Delay: " .. S.WalkDelay .. "s"
+end)
+
+AutoJumpBtn.MouseButton1Click:Connect(function()
+	S.AutoJump = not S.AutoJump
+	if S.AutoJump then BtnOn(AutoJumpBtn) AutoJumpBtn.Text = "Auto Jump: ON" else BtnOff(AutoJumpBtn) AutoJumpBtn.Text = "Auto Jump: OFF" end
+end)
+
+AutoTreadBtn.MouseButton1Click:Connect(function()
+	S.AutoTread = not S.AutoTread
+	if S.AutoTread then BtnOn(AutoTreadBtn) AutoTreadBtn.Text = "Auto Tread: ON" else BtnOff(AutoTreadBtn) AutoTreadBtn.Text = "Auto Tread: OFF" end
+end)
+
+TpTreadBtn.MouseButton1Click:Connect(function()
+	local tread = FindPartByName("treadmill") or FindPartByName("Treadmill")
+	if tread then SafeTP(tread.Position + Vector3.new(0, 3, 0)) Notify("MeeHub", "TP to Treadmill!", 2)
+	else Notify("MeeHub", "Treadmill not found", 2) end
+end)
+
+AutoClickBtn.MouseButton1Click:Connect(function()
+	S.AutoClick = not S.AutoClick
+	if S.AutoClick then BtnOn(AutoClickBtn) AutoClickBtn.Text = "Auto Click: ON" else BtnOff(AutoClickBtn) AutoClickBtn.Text = "Auto Click: OFF" end
+end)
+
+AutoWinBtn.MouseButton1Click:Connect(function()
+	S.AutoWin = not S.AutoWin
+	if S.AutoWin then BtnOn(AutoWinBtn) AutoWinBtn.Text = "Auto Win: ON" else BtnOff(AutoWinBtn) AutoWinBtn.Text = "Auto Win: OFF" end
+end)
+
+AutoRebirthBtn.MouseButton1Click:Connect(function()
+	S.AutoRebirth = not S.AutoRebirth
+	if S.AutoRebirth then BtnOn(AutoRebirthBtn) AutoRebirthBtn.Text = "Auto Rebirth: ON" else BtnOff(AutoRebirthBtn) AutoRebirthBtn.Text = "Auto Rebirth: OFF" end
+end)
+
+AutoStageBtn.MouseButton1Click:Connect(function()
+	S.AutoStage = not S.AutoStage
+	if S.AutoStage then BtnOn(AutoStageBtn) AutoStageBtn.Text = "Auto Stage: ON" else BtnOff(AutoStageBtn) AutoStageBtn.Text = "Auto Stage: OFF" end
+end)
+
+InfSpeedBtn.MouseButton1Click:Connect(function()
+	S.InfSpeed = not S.InfSpeed
+	if S.InfSpeed then BtnOn(InfSpeedBtn) InfSpeedBtn.Text = "Inf Speed: ON" else BtnOff(InfSpeedBtn) InfSpeedBtn.Text = "Inf Speed: OFF" end
+end)
+
+SpeedMultBtn.MouseButton1Click:Connect(function()
+	S.SpeedMultVal = S.SpeedMultVal == 2 and 5 or (S.SpeedMultVal == 5 and 10 or (S.SpeedMultVal == 10 and 50 or 2))
+	SpeedMultBtn.Text = "Speed x" .. S.SpeedMultVal
+end)
+
+AutoCollectBtn.MouseButton1Click:Connect(function()
+	S.AutoCollect = not S.AutoCollect
+	if S.AutoCollect then BtnOn(AutoCollectBtn) AutoCollectBtn.Text = "Auto Collect: ON" else BtnOff(AutoCollectBtn) AutoCollectBtn.Text = "Auto Collect: OFF" end
+end)
+
+SimWalkBtn.MouseButton1Click:Connect(function()
+	S.SimWalk = not S.SimWalk
+	if S.SimWalk then BtnOn(SimWalkBtn) SimWalkBtn.Text = "Sim Walk: ON" else BtnOff(SimWalkBtn) SimWalkBtn.Text = "Sim Walk: OFF" end
+end)
+
+SimSprintBtn.MouseButton1Click:Connect(function()
+	S.SimSprint = not S.SimSprint
+	if S.SimSprint then BtnOn(SimSprintBtn) SimSprintBtn.Text = "Sim Sprint: ON" else BtnOff(SimSprintBtn) SimSprintBtn.Text = "Sim Sprint: OFF" end
+end)
+
+AutoAllBtn.MouseButton1Click:Connect(function()
+	S.AutoAll = not S.AutoAll
+	if S.AutoAll then
+		BtnOn(AutoAllBtn) AutoAllBtn.Text = "Auto ALL: ON"
+		S.AutoWalk = true; BtnOn(AutoWalkBtn); AutoWalkBtn.Text = "Auto Walk: ON"
+		S.AutoTread = true; BtnOn(AutoTreadBtn); AutoTreadBtn.Text = "Auto Tread: ON"
+		S.AutoWin = true; BtnOn(AutoWinBtn); AutoWinBtn.Text = "Auto Win: ON"
+		S.AutoRebirth = true; BtnOn(AutoRebirthBtn); AutoRebirthBtn.Text = "Auto Rebirth: ON"
+		Notify("MeeHub", "ALL Auto features ON!", 2)
+	else
+		BtnOff(AutoAllBtn) AutoAllBtn.Text = "Auto ALL: OFF"
+		S.AutoWalk = false; BtnOff(AutoWalkBtn); AutoWalkBtn.Text = "Auto Walk: OFF"
+		S.AutoTread = false; BtnOff(AutoTreadBtn); AutoTreadBtn.Text = "Auto Tread: OFF"
+		S.AutoWin = false; BtnOff(AutoWinBtn); AutoWinBtn.Text = "Auto Win: OFF"
+		S.AutoRebirth = false; BtnOff(AutoRebirthBtn); AutoRebirthBtn.Text = "Auto Rebirth: OFF"
+	end
+end)
+
+--------------------------------------------------------------
+-- PAGE 2: TELEPORT HANDLERS
+--------------------------------------------------------------
+for idx, btn in pairs(stageButtons) do
+	btn.MouseButton1Click:Connect(function()
+		local name = idx <= 13 and ("stage" .. idx) or (idx == 14 and "win" or "spawn")
+		local part = FindPartByName(name) or FindPartByName("Stage" .. idx) or FindPartByName("stage " .. idx)
+		if part then SafeTP(part.Position + Vector3.new(0, 5, 0)) Notify("MeeHub", "TP to " .. btn.Text, 2)
+		else
+			-- Fallback: try numbered children
+			pcall(function()
+				local stages = workspace:FindFirstChild("Stages") or workspace:FindFirstChild("stages") or workspace:FindFirstChild("Obbys")
+				if stages then
+					local s = stages:FindFirstChild(tostring(idx)) or stages:FindFirstChild("Stage" .. idx)
+					if s then
+						local p = s:FindFirstChildWhichIsA("BasePart")
+						if p then SafeTP(p.Position + Vector3.new(0, 5, 0)) end
+					end
+				end
+			end)
+			Notify("MeeHub", "Trying TP " .. btn.Text, 2)
+		end
+	end)
+end
+
+TpShopBtn.MouseButton1Click:Connect(function()
+	local p = FindPartByName("shop"); if p then SafeTP(p.Position + Vector3.new(0, 5, 0)) end; Notify("MeeHub", "TP Shop", 2)
+end)
+TpRebirthBtn.MouseButton1Click:Connect(function()
+	local p = FindPartByName("rebirth"); if p then SafeTP(p.Position + Vector3.new(0, 5, 0)) end; Notify("MeeHub", "TP Rebirth", 2)
+end)
+TpStartBtn.MouseButton1Click:Connect(function() SafeTP(Vector3.new(0, 50, 0)); Notify("MeeHub", "TP Start", 2) end)
+
+for i, btn in ipairs({TpTreadmill2Btn, TpTreadmill3Btn, TpTreadmill4Btn}) do
+	btn.MouseButton1Click:Connect(function()
+		local count = 0
+		for _, v in pairs(workspace:GetDescendants()) do
+			if v:IsA("BasePart") and v.Name:lower():find("treadmill") then
+				count = count + 1
+				if count == i then SafeTP(v.Position + Vector3.new(0, 3, 0)); Notify("MeeHub", "TP Treadmill " .. i, 2); break end
+			end
+		end
+	end)
+end
+
+--------------------------------------------------------------
+-- PAGE 3: PLAYER HANDLERS
+--------------------------------------------------------------
+SpeedBoostBtn.MouseButton1Click:Connect(function()
+	S.Speed = not S.Speed
+	if S.Speed then BtnOn(SpeedBoostBtn) SpeedBoostBtn.Text = "Speed: ON" else BtnOff(SpeedBoostBtn) SpeedBoostBtn.Text = "Speed: OFF" pcall(function() plr.Character.Humanoid.WalkSpeed = 16 end) end
+end)
+
+FlyBtn.MouseButton1Click:Connect(function()
+	S.Fly = not S.Fly
+	if S.Fly then
+		BtnOn(FlyBtn); FlyBtn.Text = "Fly: ON"
+		pcall(function()
+			local hrp = plr.Character.HumanoidRootPart
+			FlyBV = Instance.new("BodyVelocity"); FlyBV.MaxForce = Vector3.new(9e9,9e9,9e9); FlyBV.Velocity = Vector3.zero; FlyBV.Parent = hrp
+			FlyBG = Instance.new("BodyGyro"); FlyBG.MaxTorque = Vector3.new(9e9,9e9,9e9); FlyBG.P = 9e4; FlyBG.Parent = hrp
+		end)
+	else
+		BtnOff(FlyBtn); FlyBtn.Text = "Fly: OFF"
+		if FlyBV then FlyBV:Destroy(); FlyBV = nil end
+		if FlyBG then FlyBG:Destroy(); FlyBG = nil end
+	end
+end)
+
+NoclipPlayerBtn.MouseButton1Click:Connect(function()
+	S.Noclip = not S.Noclip
+	if S.Noclip then BtnOn(NoclipPlayerBtn) NoclipPlayerBtn.Text = "Noclip: ON" else BtnOff(NoclipPlayerBtn) NoclipPlayerBtn.Text = "Noclip: OFF" end
+end)
+
+SpeedValBtn.MouseButton1Click:Connect(function()
+	S.SpeedMult = S.SpeedMult + 1; if S.SpeedMult > 10 then S.SpeedMult = 1 end
+	SpeedValBtn.Text = "Speed: x" .. S.SpeedMult
+end)
+
+JumpPwrBtn.MouseButton1Click:Connect(function()
+	S.JumpPower = S.JumpPower + 25; if S.JumpPower > 200 then S.JumpPower = 50 end
+	JumpPwrBtn.Text = "Jump: " .. S.JumpPower
+	pcall(function() plr.Character.Humanoid.JumpPower = S.JumpPower; plr.Character.Humanoid.UseJumpPower = true end)
+end)
+
+GravBtn.MouseButton1Click:Connect(function()
+	S.LowGrav = not S.LowGrav
+	workspace.Gravity = S.LowGrav and 80 or 196.2
+	if S.LowGrav then BtnOn(GravBtn) GravBtn.Text = "Low Grav: ON" else BtnOff(GravBtn) GravBtn.Text = "Low Grav: OFF" end
+end)
+
+FullBrightBtn.MouseButton1Click:Connect(function()
+	S.FullBright = not S.FullBright
+	if S.FullBright then BtnOn(FullBrightBtn) FullBrightBtn.Text = "Full Bright: ON"
+		Lighting.Ambient = Color3.new(1,1,1); Lighting.OutdoorAmbient = Color3.new(1,1,1); Lighting.Brightness = 2; Lighting.GlobalShadows = false; Lighting.FogEnd = 1e6
+	else BtnOff(FullBrightBtn) FullBrightBtn.Text = "Full Bright: OFF"
+		Lighting.Ambient = OldLight.Ambient; Lighting.OutdoorAmbient = OldLight.OutdoorAmbient; Lighting.Brightness = OldLight.Brightness; Lighting.GlobalShadows = OldLight.GlobalShadows; Lighting.FogEnd = OldLight.FogEnd
+	end
+end)
+
+NoFogBtn.MouseButton1Click:Connect(function()
+	S.NoFog = not S.NoFog; Lighting.FogEnd = S.NoFog and 1e9 or OldLight.FogEnd
+	if S.NoFog then BtnOn(NoFogBtn) NoFogBtn.Text = "No Fog: ON" else BtnOff(NoFogBtn) NoFogBtn.Text = "No Fog: OFF" end
+end)
+
+FOVBtn.MouseButton1Click:Connect(function()
+	S.FOV = S.FOV + 10; if S.FOV > 120 then S.FOV = 40 end
+	Camera.FieldOfView = S.FOV; FOVBtn.Text = "FOV: " .. S.FOV
+end)
+
+InvisBtn.MouseButton1Click:Connect(function()
+	S.Invisible = not S.Invisible; local t = S.Invisible and 1 or 0
+	if S.Invisible then BtnOn(InvisBtn) InvisBtn.Text = "Invisible: ON" else BtnOff(InvisBtn) InvisBtn.Text = "Invisible: OFF" end
+	pcall(function() for _, p in pairs(plr.Character:GetDescendants()) do
+		if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then p.Transparency = t elseif p:IsA("Decal") then p.Transparency = t end
+	end end)
+end)
+
+SmallBtn.MouseButton1Click:Connect(function()
+	pcall(function() local h = plr.Character.Humanoid
+		for _, s in ipairs({"HeadScale","BodyDepthScale","BodyWidthScale","BodyHeightScale"}) do
+			local sv = h:FindFirstChild(s); if sv then sv.Value = sv.Value == 0.5 and 1 or 0.5 end
+		end
+	end)
+end)
+
+RespawnBtn.MouseButton1Click:Connect(function() pcall(function() plr.Character:BreakJoints() end) end)
+
+--------------------------------------------------------------
+-- PAGE 4: MISC HANDLERS
+--------------------------------------------------------------
+AntiAFKBtn.MouseButton1Click:Connect(function()
+	S.AntiAFK = not S.AntiAFK
+	if S.AntiAFK then BtnOn(AntiAFKBtn) AntiAFKBtn.Text = "Anti-AFK: ON"
+		pcall(function() local VU = game:GetService("VirtualUser"); plr.Idled:Connect(function() VU:CaptureController(); VU:ClickButton2(Vector2.new()) end) end)
+		Notify("MeeHub", "Anti-AFK enabled!", 3)
+	else BtnOff(AntiAFKBtn) AntiAFKBtn.Text = "Anti-AFK: OFF" end
+end)
+
+AntiSlowBtn.MouseButton1Click:Connect(function()
+	S.AntiSlow = not S.AntiSlow
+	if S.AntiSlow then BtnOn(AntiSlowBtn) AntiSlowBtn.Text = "Anti-Slow: ON" else BtnOff(AntiSlowBtn) AntiSlowBtn.Text = "Anti-Slow: OFF" end
+end)
+
+AntiVoidBtn.MouseButton1Click:Connect(function()
+	S.AntiVoid = not S.AntiVoid
+	if S.AntiVoid then BtnOn(AntiVoidBtn) AntiVoidBtn.Text = "Anti-Void: ON" else BtnOff(AntiVoidBtn) AntiVoidBtn.Text = "Anti-Void: OFF" end
+end)
+
+ServerHopBtn.MouseButton1Click:Connect(function() Notify("MeeHub", "Hopping...", 3); pcall(function() game:GetService("TeleportService"):Teleport(game.PlaceId, plr) end) end)
+RejoinBtn.MouseButton1Click:Connect(function() Notify("MeeHub", "Rejoining...", 3); task.wait(1); pcall(function() game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, plr) end) end)
+CopyJobBtn.MouseButton1Click:Connect(function() pcall(function() local c = setclipboard or toclipboard or set_clipboard; if c then c(game.JobId) Notify("MeeHub", "JobId copied!", 3) end end) end)
+
+FPSBtn.MouseButton1Click:Connect(function()
+	S.FPSDisplay = not S.FPSDisplay; FPSLabel.Visible = S.FPSDisplay
+	if S.FPSDisplay then BtnOn(FPSBtn) FPSBtn.Text = "FPS Display: ON" else BtnOff(FPSBtn) FPSBtn.Text = "FPS Display: OFF" end
+end)
+
+LagBtn.MouseButton1Click:Connect(function()
+	S.LagReduce = not S.LagReduce
+	if S.LagReduce then BtnOn(LagBtn) LagBtn.Text = "Reduce Lag: ON"; settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+	else BtnOff(LagBtn) LagBtn.Text = "Reduce Lag: OFF"; settings().Rendering.QualityLevel = Enum.QualityLevel.Automatic end
+end)
+
+NoPartBtn.MouseButton1Click:Connect(function()
+	S.NoParticles = not S.NoParticles; local en = not S.NoParticles
+	if S.NoParticles then BtnOn(NoPartBtn) NoPartBtn.Text = "No Particles: ON" else BtnOff(NoPartBtn) NoPartBtn.Text = "No Particles: OFF" end
+	pcall(function() for _, v in pairs(workspace:GetDescendants()) do if v:IsA("ParticleEmitter") or v:IsA("Trail") then v.Enabled = en end end end)
+end)
+
+InfYieldBtn.MouseButton1Click:Connect(function() Notify("MeeHub", "Loading IY...", 3); pcall(function() loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))() end) end)
+
+ChatSpamBtn.MouseButton1Click:Connect(function()
+	S.ChatSpam = not S.ChatSpam
+	if S.ChatSpam then BtnOn(ChatSpamBtn) ChatSpamBtn.Text = "Chat Spam: ON"
+		task.spawn(function() local m = {"GG!","so fast!","MeeHub!","ez speed","ðŸ«ðŸ«ðŸ«"}
+			while S.ChatSpam and not IsUiClosed do pcall(function() RepStorage:WaitForChild("DefaultChatSystemChatEvents"):WaitForChild("SayMessageRequest"):FireServer(m[math.random(#m)], "All") end) task.wait(3) end
+		end)
+	else BtnOff(ChatSpamBtn) ChatSpamBtn.Text = "Chat Spam: OFF" end
+end)
+
+SpeedInfoBtn.MouseButton1Click:Connect(function()
+	S.SpeedInfo = not S.SpeedInfo; SpeedLabel.Visible = S.SpeedInfo
+	if S.SpeedInfo then BtnOn(SpeedInfoBtn) SpeedInfoBtn.Text = "Speed Info: ON" else BtnOff(SpeedInfoBtn) SpeedInfoBtn.Text = "Speed Info: OFF" end
+end)
+
+--------------------------------------------------------------
+-- MAIN LOOP
+--------------------------------------------------------------
+Conns.Main = RS.Heartbeat:Connect(function()
+	if IsUiClosed then return end
+	pcall(function()
+		local char = plr.Character; if not char then return end
+		local hum = char:FindFirstChild("Humanoid")
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+
+		if S.Speed and hum then hum.WalkSpeed = 16 * S.SpeedMult end
+		if S.AntiSlow and hum and hum.WalkSpeed < 16 then hum.WalkSpeed = 16 end
+		if S.AntiVoid and hrp and hrp.Position.Y < -50 then hrp.CFrame = CFrame.new(0, 50, 0) end
+		if S.Noclip and char then for _, p in pairs(char:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide = false end end end
+		if S.AutoJump and hum and hum.MoveDirection.Magnitude > 0 then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+
+		if S.Fly and FlyBV and FlyBG and hrp then
+			FlyBG.CFrame = Camera.CFrame
+			local d = Vector3.zero
+			if UIS:IsKeyDown(Enum.KeyCode.W) then d = d + Camera.CFrame.LookVector end
+			if UIS:IsKeyDown(Enum.KeyCode.S) then d = d - Camera.CFrame.LookVector end
+			if UIS:IsKeyDown(Enum.KeyCode.A) then d = d - Camera.CFrame.RightVector end
+			if UIS:IsKeyDown(Enum.KeyCode.D) then d = d + Camera.CFrame.RightVector end
+			if UIS:IsKeyDown(Enum.KeyCode.Space) then d = d + Vector3.yAxis end
+			if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then d = d - Vector3.yAxis end
+			FlyBV.Velocity = d.Magnitude > 0 and d.Unit * S.FlySpeed or Vector3.zero
+		end
+
+		-- Speed info
+		if S.SpeedInfo and hum then
+			SpeedLabel.Text = "Walk: " .. math.floor(hum.WalkSpeed) .. " | Jump: " .. math.floor(hum.JumpPower)
+		end
+	end)
+end)
+
+--------------------------------------------------------------
+-- AUTO FARM LOOPS
+--------------------------------------------------------------
+-- Auto Walk (simulate stepping on keys)
+task.spawn(function()
+	while not IsUiClosed do
+		if S.AutoWalk then
+			pcall(function()
+				Fire("walk"); Fire("step"); Fire("speed")
+				Fire("walk", 1); Fire("step", 1)
+				-- Try touching keyboard key parts
+				pcall(function()
+					local char = plr.Character
+					if char and char:FindFirstChild("HumanoidRootPart") then
+						for _, v in pairs(workspace:GetDescendants()) do
+							if v:IsA("BasePart") and (v.Name:lower():find("key") or v.Name:lower():find("button") or v.Name:lower():find("keyboard")) then
+								if (v.Position - char.HumanoidRootPart.Position).Magnitude < 50 then
+									pcall(function()
+										if typeof(firetouchinterest) == "function" then
+											firetouchinterest(char.HumanoidRootPart, v, 0)
+											task.wait()
+											firetouchinterest(char.HumanoidRootPart, v, 1)
+										end
+									end)
+								end
+							end
+						end
+					end
+				end)
+			end)
+			task.wait(S.WalkDelay)
+		else
+			task.wait(0.5)
+		end
+	end
+end)
+
+-- Auto Treadmill
+task.spawn(function()
+	while not IsUiClosed do
+		if S.AutoTread then
+			pcall(function()
+				Fire("treadmill"); Fire("train")
+				-- TP to treadmill and stay
+				pcall(function()
+					local char = plr.Character
+					if char and char:FindFirstChild("HumanoidRootPart") then
+						local tread = FindPartByName("treadmill")
+						if tread then
+							local dist = (tread.Position - char.HumanoidRootPart.Position).Magnitude
+							if dist > 20 then
+								char.HumanoidRootPart.CFrame = tread.CFrame + Vector3.new(0, 3, 0)
+							end
+							if typeof(firetouchinterest) == "function" then
+								firetouchinterest(char.HumanoidRootPart, tread, 0)
+								task.wait()
+								firetouchinterest(char.HumanoidRootPart, tread, 1)
+							end
+						end
+					end
+				end)
+			end)
+			task.wait(0.3)
+		else task.wait(0.5) end
+	end
+end)
+
+-- Auto Win
+task.spawn(function()
+	while not IsUiClosed do
+		if S.AutoWin then
+			pcall(function()
+				Fire("win"); Fire("finish"); Fire("complete")
+				-- TP to win pad
+				pcall(function()
+					local char = plr.Character
+					if char and char:FindFirstChild("HumanoidRootPart") then
+						local win = FindPartByName("win") or FindPartByName("finish") or FindPartByName("end")
+						if win then
+							char.HumanoidRootPart.CFrame = win.CFrame + Vector3.new(0, 3, 0)
+							if typeof(firetouchinterest) == "function" then
+								firetouchinterest(char.HumanoidRootPart, win, 0)
+								task.wait()
+								firetouchinterest(char.HumanoidRootPart, win, 1)
+							end
+						end
+					end
+				end)
+				-- Try clicking win buttons in GUI
+				pcall(function()
+					for _, v in pairs(plr.PlayerGui:GetDescendants()) do
+						if v:IsA("TextButton") and (v.Name:lower():find("win") or v.Name:lower():find("claim") or v.Name:lower():find("next")) and v.Visible then
+							pcall(function() v.MouseButton1Click:Fire() end)
+						end
+					end
+				end)
+			end)
+			task.wait(2)
+		else task.wait(0.5) end
+	end
+end)
+
+-- Auto Rebirth
+task.spawn(function()
+	while not IsUiClosed do
+		if S.AutoRebirth then
+			pcall(function()
+				Fire("rebirth"); Fire("prestige"); Fire("reset")
+				pcall(function()
+					for _, v in pairs(plr.PlayerGui:GetDescendants()) do
+						if v:IsA("TextButton") and (v.Name:lower():find("rebirth") or v.Text:lower():find("rebirth")) and v.Visible then
+							pcall(function() v.MouseButton1Click:Fire() end)
+						end
+					end
+				end)
+			end)
+			task.wait(3)
+		else task.wait(0.5) end
+	end
+end)
+
+-- Auto Collect
+task.spawn(function()
+	while not IsUiClosed do
+		if S.AutoCollect then
+			pcall(function()
+				Fire("collect"); Fire("claim"); Fire("pickup")
+				pcall(function()
+					local char = plr.Character
+					if char and char:FindFirstChild("HumanoidRootPart") and typeof(firetouchinterest) == "function" then
+						for _, v in pairs(workspace:GetDescendants()) do
+							if v:IsA("BasePart") and (v.Name:lower():find("collect") or v.Name:lower():find("coin") or v.Name:lower():find("orb") or v.Name:lower():find("candy") or v.Name:lower():find("chocolate")) then
+								if (v.Position - char.HumanoidRootPart.Position).Magnitude < 80 then
+									firetouchinterest(char.HumanoidRootPart, v, 0)
+									task.wait()
+									firetouchinterest(char.HumanoidRootPart, v, 1)
+								end
+							end
+						end
+					end
+				end)
+			end)
+			task.wait(1)
+		else task.wait(0.5) end
+	end
+end)
+
+-- Auto Click (click UI buttons)
+task.spawn(function()
+	while not IsUiClosed do
+		if S.AutoClick then
+			pcall(function()
+				Fire("click"); Fire("tap")
+				pcall(function()
+					if typeof(game.GetService) == "function" then
+						game:GetService("VirtualInputManager"):SendMouseButtonEvent(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2, 0, true, game, 0)
+						task.wait(0.05)
+						game:GetService("VirtualInputManager"):SendMouseButtonEvent(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2, 0, false, game, 0)
+					end
+				end)
+			end)
+			task.wait(0.2)
+		else task.wait(0.5) end
+	end
+end)
+
+-- Simulate Walking (move character forward)
+task.spawn(function()
+	while not IsUiClosed do
+		if S.SimWalk or S.SimSprint then
+			pcall(function()
+				local char = plr.Character
+				if char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
+					local hum = char.Humanoid
+					if S.SimSprint then hum.WalkSpeed = math.max(hum.WalkSpeed, 50) end
+					hum:Move(char.HumanoidRootPart.CFrame.LookVector, false)
+				end
+			end)
+			task.wait(0.1)
+		else task.wait(0.5) end
+	end
+end)
+
+-- FPS Display
+task.spawn(function()
+	while not IsUiClosed do
+		if S.FPSDisplay then
+			pcall(function()
+				local fps = math.floor(1 / RS.Heartbeat:Wait())
+				local ping = math.floor(plr:GetNetworkPing() * 1000)
+				FPSLabel.Text = "FPS: " .. fps .. " | Ping: " .. ping .. "ms"
+			end)
+		end
+		task.wait(0.5)
+	end
+end)
+
+--------------------------------------------------------------
+-- MINIMIZE / CLOSE
+--------------------------------------------------------------
+MinBtn.MouseButton1Click:Connect(function()
+	IsGuiVisible = not IsGuiVisible
+	ContentArea.Visible = IsGuiVisible; TabBar.Visible = IsGuiVisible; StatusBar.Visible = IsGuiVisible
+	MainFrame.Size = IsGuiVisible and UDim2.new(0.42, 0, 0.58, 0) or UDim2.new(0.42, 0, 0, 42)
+end)
+
+CloseBtn.MouseButton1Click:Connect(function()
+	IsUiClosed = true
+	S.Noclip = false; S.Speed = false; S.Fly = false; S.AutoWalk = false; S.ChatSpam = false
+	if FlyBV then FlyBV:Destroy() end; if FlyBG then FlyBG:Destroy() end
+	Lighting.Ambient = OldLight.Ambient; Lighting.OutdoorAmbient = OldLight.OutdoorAmbient
+	Lighting.Brightness = OldLight.Brightness; Lighting.FogEnd = OldLight.FogEnd; Lighting.GlobalShadows = OldLight.GlobalShadows
+	workspace.Gravity = 196.2; Camera.FieldOfView = 70
+	for _, c in pairs(Conns) do pcall(function() c:Disconnect() end) end
+	pcall(function() plr.Character.Humanoid.WalkSpeed = 16 end)
+	MeeHub:Destroy(); env["MeeHubSpeed"] = nil
+end)
+
+--------------------------------------------------------------
+-- SHORTCUTS
+--------------------------------------------------------------
+UIS.InputBegan:Connect(function(inp, gp) if gp then return end
+	if inp.KeyCode == Enum.KeyCode.F1 then MainFrame.Visible = not MainFrame.Visible
+	elseif inp.KeyCode == Enum.KeyCode.F2 then AutoWalkBtn.MouseButton1Click:Fire()
+	elseif inp.KeyCode == Enum.KeyCode.F3 then AutoTreadBtn.MouseButton1Click:Fire()
+	elseif inp.KeyCode == Enum.KeyCode.F4 then AutoWinBtn.MouseButton1Click:Fire()
+	elseif inp.KeyCode == Enum.KeyCode.F5 then SpeedBoostBtn.MouseButton1Click:Fire()
+	end
+end)
+
+--------------------------------------------------------------
+-- RAINBOW STROKE
+--------------------------------------------------------------
+task.spawn(function()
+	local h = 0
+	while not IsUiClosed do
+		h = (h + 0.005) % 1
+		MainStroke.Color = Color3.fromHSV(h, 0.7, 1)
+		task.wait(0.03)
+	end
+end)
+
+--------------------------------------------------------------
+-- LOADED
+--------------------------------------------------------------
+print("ðŸ« MeeHub v1.0 â€” +1 Speed Keyboard Escape â€” Loaded!")
+Notify("ðŸ« MeeHub v1.0", "Loaded! 4 pages, 40+ features!\nF1-F5 shortcuts!\nCandy & Chocolate theme!", 5)
