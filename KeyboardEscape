@@ -211,8 +211,10 @@ end
 for i, t in ipairs(tabButtons) do t.MouseButton1Click:Connect(function() SwitchTab(i) end) end
 
 local CachedRemotes = {}
+local SearchedNames = {}
 local function Fire(name)
-	if not CachedRemotes[name] then
+	if not SearchedNames[name] then
+		SearchedNames[name] = true
 		for _, v in pairs(RepStorage:GetDescendants()) do
 			if (v.ClassName == "RemoteEvent" or v.ClassName == "RemoteFunction") and string.find(string.lower(v.Name), name) then
 				CachedRemotes[name] = v; break
