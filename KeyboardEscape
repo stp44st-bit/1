@@ -264,11 +264,35 @@ end)
 task.spawn(function()
 	while not IsUiClosed do
 		if S.AutoWalk then pcall(function() Fire("walk"); Fire("step"); Fire("speed") end) end
+		task.wait(0.3)
+	end
+end)
+
+task.spawn(function()
+	while not IsUiClosed do
 		if S.AutoTread then pcall(function() Fire("treadmill"); Fire("train") end) end
+		task.wait(0.5)
+	end
+end)
+
+task.spawn(function()
+	while not IsUiClosed do
 		if S.AutoWin then pcall(function() Fire("win"); Fire("finish") end) end
+		task.wait(2)
+	end
+end)
+
+task.spawn(function()
+	while not IsUiClosed do
 		if S.AutoRebirth then pcall(function() Fire("rebirth") end) end
+		task.wait(3)
+	end
+end)
+
+task.spawn(function()
+	while not IsUiClosed do
 		if S.AutoCollect then pcall(function() Fire("collect"); Fire("claim") end) end
-		task.wait(0.1)
+		task.wait(1)
 	end
 end)
 
