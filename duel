@@ -1,0 +1,828 @@
+--[[
+    Z3R0 | Dueling Grounds Hack
+    Version: 3.0
+    Executor: XENO / Krnl / Synapse
+    Features: ESP, Aimbot, AutoFarm, Speed, Fly, Teleport, Anti-Ban
+]]
+
+-- ตรวจสอบว่าโหลดจาก loader หรือไม่
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
+
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local VirtualInput = game:GetService("VirtualInputManager")
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+-- ============================================================
+-- ส่วนที่ 1: ตัวแปรสถานะ
+-- ============================================================
+
+local Settings = {
+    ESP = true,
+    Aimbot = false,
+    AutoFarm = false,
+    SpeedHack = false,
+    Noclip = false,
+    Fly = false,
+    Teleport = false,
+    ShowBoxes = true,
+    ShowNames = true,
+    ShowDistance = true,
+    ShowHealth = true,
+    ShowTracers = false,
+    TeamCheck = true,
+    VisibleCheck = false,
+    AimbotSmoothness = 5,
+    AimbotFOV = 200,
+    AutoFarmRadius = 50,
+    SpeedValue = 50,
+    FlySpeed = 60,
+}
+
+local PlayersList = {}
+local ESPObjects = {}
+local IsFlying = false
+local FarmTargets = {}
+
+-- ============================================================
+-- ส่วนที่ 2: ฟังก์ชันช่วยเหลือ
+-- ============================================================
+
+local function GetPlayers()
+    local list = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            table.insert(list, player)
+        end
+    end
+    return list
+end
+
+local function IsValid(player)
+    if not player or player == LocalPlayer then return false end
+    if not player.Character then return false end
+    if not player.Character:FindFirstChild("HumanoidRootPart") then return false end
+    if not player.Character:FindFirstChild("Humanoid") then return false end
+    if player.Character.Humanoid.Health <= 0 then return false end
+    return true
+end
+
+local function GetTeam(player)
+    local character = player.Character
+    if character then
+        local teamTag = character:FindFirstChild("TeamTag")
+        if teamTag and teamTag:IsA("StringValue") then
+            return teamTag.Value
+        end
+        local brickColor = character:FindFirstChild("BrickColor")
+        if brickColor and brickColor:IsA("BrickColorValue") then
+            return tostring(brickColor.Value)
+        end
+    end
+    return "Unknown"
+end
+
+local function IsVisible(player)
+    if not Settings.VisibleCheck then return true end
+    if not player or not player.Character then return false end
+    
+    local root = player.Character:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+    
+    local origin = Camera.CFrame.Position
+    local target = root.Position
+    
+    local ray = Ray.new(origin, (target - origin).Unit * (target - origin).Magnitude)
+    local hit, pos = Workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character, player.Character})
+    
+    return hit == nil or hit:IsDescendantOf(player.Character)
+end
+
+-- ============================================================
+-- ส่วนที่ 3: ESP
+-- ============================================================
+
+local function CreateESP(player)
+    if not Settings.ESP then return end
+    if not IsValid(player) then return end
+    if ESPObjects[player] then return end
+    
+    local character = player.Character
+    local root = character:FindFirstChild("HumanoidRootPart")
+    local head = character:FindFirstChild("Head")
+    if not root or not head then return end
+    
+    local objects = {}
+    
+    -- Box
+    if Settings.ShowBoxes then
+        local box = Instance.new("BoxHandleAdornment")
+        box.Size = Vector3.new(4, 5, 2)
+        box.Adornee = root
+        box.AlwaysOnTop = true
+        box.ZIndex = 2
+        box.Color3 = Settings.ESPColor or Color3.new(0, 1, 0)
+        box.Transparency = 0.3
+        box.Parent = root
+        
+        local border = Instance.new("BoxHandleAdornment")
+        border.Size = Vector3.new(4.2, 5.2, 2.2)
+        border.Adornee = root
+        border.AlwaysOnTop = true
+        border.ZIndex = 1
+        border.Color3 = Color3.new(0, 0, 0)
+        border.Transparency = 0.5
+        border.Parent = root
+        
+        objects.box = box
+        objects.border = border
+    end
+    
+    -- Name + Health
+    if Settings.ShowNames or Settings.ShowHealth then
+        local billboard = Instance.new("BillboardGui")
+        billboard.Size = UDim2.new(0, 200, 0, 60)
+        billboard.Adornee = head
+        billboard.AlwaysOnTop = true
+        billboard.Parent = head
+        
+        if Settings.ShowNames then
+            local nameLabel = Instance.new("TextLabel", billboard)
+            nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
+            nameLabel.Position = UDim2.new(0, 0, 0.5, 0)
+            nameLabel.BackgroundTransparency = 1
+            nameLabel.Text = player.Name
+            nameLabel.TextColor3 = Settings.ESPColor or Color3.new(0, 1, 0)
+            nameLabel.TextScaled = true
+            nameLabel.Font = Enum.Font.GothamBold
+            nameLabel.TextStrokeTransparency = 0.3
+            objects.nameLabel = nameLabel
+        end
+        
+        if Settings.ShowHealth then
+            local healthLabel = Instance.new("TextLabel", billboard)
+            healthLabel.Size = UDim2.new(1, 0, 0.3, 0)
+            healthLabel.Position = UDim2.new(0, 0, 0, 0)
+            healthLabel.BackgroundTransparency = 1
+            healthLabel.Text = "❤️ 100%"
+            healthLabel.TextColor3 = Color3.new(0, 1, 0)
+            healthLabel.TextScaled = true
+            healthLabel.Font = Enum.Font.Gotham
+            objects.healthLabel = healthLabel
+        end
+        
+        if Settings.ShowDistance then
+            local distLabel = Instance.new("TextLabel", billboard)
+            distLabel.Size = UDim2.new(1, 0, 0.3, 0)
+            distLabel.Position = UDim2.new(0, 0, 0.85, 0)
+            distLabel.BackgroundTransparency = 1
+            distLabel.Text = "0m"
+            distLabel.TextColor3 = Color3.new(1, 1, 1)
+            distLabel.TextScaled = true
+            distLabel.Font = Enum.Font.Gotham
+            objects.distLabel = distLabel
+        end
+        
+        objects.billboard = billboard
+    end
+    
+    -- Tracer
+    if Settings.ShowTracers then
+        local tracer = Instance.new("LineHandleAdornment")
+        tracer.Adornee = root
+        tracer.AlwaysOnTop = true
+        tracer.Color3 = Settings.ESPColor or Color3.new(0, 1, 0)
+        tracer.Thickness = 2
+        tracer.Transparency = 0.4
+        tracer.PointA = Vector3.new(0, 0, 0)
+        tracer.PointB = Vector3.new(0, 5, 0)
+        tracer.Parent = root
+        objects.tracer = tracer
+    end
+    
+    ESPObjects[player] = objects
+end
+
+local function UpdateESP()
+    local myTeam = GetTeam(LocalPlayer)
+    
+    for player, objects in pairs(ESPObjects) do
+        if not IsValid(player) then
+            for _, obj in pairs(objects) do
+                pcall(function() obj:Destroy() end)
+            end
+            ESPObjects[player] = nil
+        else
+            local color = Settings.ESPColor or Color3.new(0, 1, 0)
+            local playerTeam = GetTeam(player)
+            
+            if Settings.TeamCheck and playerTeam == myTeam then
+                color = Color3.new(0, 0.5, 1) -- Team color
+            elseif Settings.TeamCheck then
+                color = Color3.new(1, 0, 0) -- Enemy color
+            end
+            
+            -- Update color
+            for _, obj in pairs(objects) do
+                if obj:IsA("HandleAdornment") and obj ~= objects.border then
+                    obj.Color3 = color
+                end
+                if obj:IsA("TextLabel") and obj ~= objects.healthLabel and obj ~= objects.distLabel then
+                    obj.TextColor3 = color
+                end
+            end
+            
+            -- Update health
+            if objects.healthLabel then
+                local humanoid = player.Character:FindFirstChild("Humanoid")
+                if humanoid then
+                    local health = math.floor((humanoid.Health / humanoid.MaxHealth) * 100)
+                    objects.healthLabel.Text = string.format("❤️ %d%%", health)
+                    if health > 70 then
+                        objects.healthLabel.TextColor3 = Color3.new(0, 1, 0)
+                    elseif health > 35 then
+                        objects.healthLabel.TextColor3 = Color3.new(1, 1, 0)
+                    else
+                        objects.healthLabel.TextColor3 = Color3.new(1, 0, 0)
+                    end
+                end
+            end
+            
+            -- Update distance
+            if objects.distLabel then
+                local root = player.Character:FindFirstChild("HumanoidRootPart")
+                local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if root and myRoot then
+                    local dist = (root.Position - myRoot.Position).Magnitude
+                    objects.distLabel.Text = string.format("%.1fm", dist)
+                end
+            end
+        end
+    end
+end
+
+-- ============================================================
+-- ส่วนที่ 4: Aimbot
+-- ============================================================
+
+local function GetClosestPlayer()
+    local closest = nil
+    local closestDist = math.huge
+    
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return nil end
+    
+    local mousePos = UserInputService:GetMouseLocation()
+    
+    for _, player in ipairs(GetPlayers()) do
+        if IsValid(player) and IsVisible(player) then
+            local root = player.Character:FindFirstChild("HumanoidRootPart")
+            if root then
+                local screenPos, onScreen = Camera:WorldToScreenPoint(root.Position)
+                if onScreen then
+                    local fov = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                    
+                    if fov < Settings.AimbotFOV then
+                        local dist = (root.Position - myRoot.Position).Magnitude
+                        if dist < closestDist then
+                            closestDist = dist
+                            closest = player
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    return closest
+end
+
+local function Aimbot()
+    if not Settings.Aimbot then return end
+    
+    local target = GetClosestPlayer()
+    if not target then return end
+    
+    local head = target.Character:FindFirstChild("Head")
+    local root = target.Character:FindFirstChild("HumanoidRootPart")
+    local aimPart = head or root
+    if not aimPart then return end
+    
+    local targetPos = aimPart.Position + Vector3.new(0, 1.5, 0)
+    local smoothness = Settings.AimbotSmoothness / 10
+    
+    local currentCFrame = Camera.CFrame
+    local targetCFrame = CFrame.lookAt(currentCFrame.Position, targetPos)
+    
+    Camera.CFrame = currentCFrame:Lerp(targetCFrame, smoothness)
+end
+
+-- ============================================================
+-- ส่วนที่ 5: Speed Hack + Noclip + Fly
+-- ============================================================
+
+local function SpeedHack()
+    if not Settings.SpeedHack then return end
+    
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    local humanoid = character:FindFirstChild("Humanoid")
+    if humanoid then
+        humanoid.WalkSpeed = Settings.SpeedValue
+        humanoid.JumpPower = 80
+    end
+end
+
+local function Noclip()
+    if not Settings.Noclip then return end
+    
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            pcall(function()
+                part.CanCollide = false
+            end)
+        end
+    end
+end
+
+local function Fly()
+    if not Settings.Fly then
+        IsFlying = false
+        local bv = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("FlyVelocity")
+        if bv then bv:Destroy() end
+        return
+    end
+    
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    local root = character:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    
+    IsFlying = true
+    
+    local bv = character:FindFirstChild("FlyVelocity")
+    if not bv then
+        bv = Instance.new("BodyVelocity")
+        bv.Name = "FlyVelocity"
+        bv.MaxForce = Vector3.new(4000, 4000, 4000)
+        bv.Parent = root
+    end
+    
+    local moveDir = Vector3.new(0, 0, 0)
+    
+    if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+        moveDir = moveDir + Camera.CFrame.LookVector
+    end
+    if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+        moveDir = moveDir - Camera.CFrame.LookVector
+    end
+    if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+        moveDir = moveDir - Camera.CFrame.RightVector
+    end
+    if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+        moveDir = moveDir + Camera.CFrame.RightVector
+    end
+    if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+        moveDir = moveDir + Vector3.new(0, 1, 0)
+    end
+    if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+        moveDir = moveDir - Vector3.new(0, 1, 0)
+    end
+    
+    if moveDir.Magnitude > 0 then
+        bv.Velocity = moveDir.Unit * Settings.FlySpeed
+    else
+        bv.Velocity = Vector3.new(0, 0, 0)
+    end
+end
+
+-- ============================================================
+-- ส่วนที่ 6: Auto Farm
+-- ============================================================
+
+local function FindFarmTargets()
+    local targets = {}
+    local radius = Settings.AutoFarmRadius
+    
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return targets end
+    
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            local name = obj.Name:lower()
+            if name:find("coin") or name:find("money") or name:find("gold") or name:find("gem") or name:find("orb") then
+                local dist = (obj.Position - myRoot.Position).Magnitude
+                if dist < radius and not obj:FindFirstChild("Collected") then
+                    table.insert(targets, {obj = obj, dist = dist})
+                end
+            end
+        end
+    end
+    
+    table.sort(targets, function(a, b) return a.dist < b.dist end)
+    return targets
+end
+
+local function AutoFarm()
+    if not Settings.AutoFarm then return end
+    
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    local root = character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character:FindFirstChild("Humanoid")
+    if not root or not humanoid then return end
+    
+    local targets = FindFarmTargets()
+    if #targets == 0 then return end
+    
+    local target = targets[1].obj
+    if not target then return end
+    
+    local dist = (target.Position - root.Position).Magnitude
+    
+    if dist > 5 then
+        humanoid:MoveTo(target.Position)
+    else
+        -- เก็บของ
+        local fire = target:FindFirstChild("ClickDetector")
+        if fire then
+            fire:Click()
+        else
+            -- จำลองการกด E
+            VirtualInput:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+            task.wait(0.05)
+            VirtualInput:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+        end
+        
+        -- ทำเครื่องหมายว่าเก็บแล้ว
+        local collected = Instance.new("BoolValue")
+        collected.Name = "Collected"
+        collected.Parent = target
+    end
+end
+
+-- ============================================================
+-- ส่วนที่ 7: GUI
+-- ============================================================
+
+local function CreateGUI()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "Z3R0_GUI"
+    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    
+    -- Main Frame
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Size = UDim2.new(0, 350, 0, 520)
+    mainFrame.Position = UDim2.new(0, 10, 0, 10)
+    mainFrame.BackgroundColor3 = Color3.new(0.05, 0.05, 0.1)
+    mainFrame.BackgroundTransparency = 0.15
+    mainFrame.BorderSizePixel = 2
+    mainFrame.BorderColor3 = Color3.new(0, 1, 0.5)
+    mainFrame.ClipsDescendants = true
+    mainFrame.Parent = screenGui
+    
+    -- Title
+    local title = Instance.new("TextLabel", mainFrame)
+    title.Size = UDim2.new(1, 0, 0, 35)
+    title.BackgroundColor3 = Color3.new(0, 1, 0.5)
+    title.BackgroundTransparency = 0.85
+    title.Text = "◈ Z3R0 ◈ DUELING GROUNDS"
+    title.TextColor3 = Color3.new(0, 1, 0.5)
+    title.TextScaled = true
+    title.Font = Enum.Font.GothamBold
+    
+    -- Toggle Button Creator
+    local function CreateToggle(parent, label, settingKey, yPos, color)
+        local frame = Instance.new("Frame", parent)
+        frame.Size = UDim2.new(1, -20, 0, 32)
+        frame.Position = UDim2.new(0, 10, 0, yPos)
+        frame.BackgroundColor3 = Color3.new(0.1, 0.1, 0.2)
+        frame.BackgroundTransparency = 0.5
+        frame.BorderSizePixel = 1
+        frame.BorderColor3 = Color3.new(0.2, 0.2, 0.3)
+        
+        local labelText = Instance.new("TextLabel", frame)
+        labelText.Size = UDim2.new(0.6, 0, 1, 0)
+        labelText.BackgroundTransparency = 1
+        labelText.Text = label
+        labelText.TextColor3 = Color3.new(1, 1, 1)
+        labelText.TextXAlignment = Enum.TextXAlignment.Left
+        labelText.TextSize = 14
+        labelText.Font = Enum.Font.Gotham
+        
+        local toggleButton = Instance.new("TextButton", frame)
+        toggleButton.Size = UDim2.new(0, 50, 0, 22)
+        toggleButton.Position = UDim2.new(0.75, 0, 0.15, 0)
+        toggleButton.BackgroundColor3 = Color3.new(0.2, 0.2, 0.3)
+        toggleButton.BorderSizePixel = 1
+        toggleButton.BorderColor3 = Color3.new(0.5, 0.5, 0.5)
+        toggleButton.Text = "OFF"
+        toggleButton.TextColor3 = Color3.new(1, 0, 0)
+        toggleButton.TextSize = 12
+        toggleButton.Font = Enum.Font.GothamBold
+        
+        if color then
+            toggleButton.BackgroundColor3 = color
+        end
+        
+        toggleButton.MouseButton1Click:Connect(function()
+            Settings[settingKey] = not Settings[settingKey]
+            toggleButton.Text = Settings[settingKey] and "ON" or "OFF"
+            toggleButton.TextColor3 = Settings[settingKey] and Color3.new(0, 1, 0) or Color3.new(1, 0, 0)
+            toggleButton.BackgroundColor3 = Settings[settingKey] and Color3.new(0, 0.3, 0) or Color3.new(0.2, 0.2, 0.3)
+        end)
+        
+        return toggleButton
+    end
+    
+    -- สร้างปุ่มทั้งหมด
+    local yOffset = 40
+    local toggles = {
+        {"ESP", "ESP"},
+        {"Aimbot", "Aimbot"},
+        {"Auto Farm", "AutoFarm"},
+        {"Speed Hack", "SpeedHack"},
+        {"Noclip", "Noclip"},
+        {"Fly", "Fly"},
+        {"Teleport", "Teleport"},
+        {"Team Check", "TeamCheck"},
+        {"Visible Check", "VisibleCheck"},
+        {"Show Boxes", "ShowBoxes"},
+        {"Show Names", "ShowNames"},
+        {"Show Distance", "ShowDistance"},
+        {"Show Health", "ShowHealth"},
+        {"Show Tracers", "ShowTracers"},
+    }
+    
+    for _, toggle in ipairs(toggles) do
+        CreateToggle(mainFrame, toggle[1], toggle[2], yOffset)
+        yOffset = yOffset + 35
+    end
+    
+    -- Slider Smoothness
+    local sliderFrame = Instance.new("Frame", mainFrame)
+    sliderFrame.Size = UDim2.new(1, -20, 0, 30)
+    sliderFrame.Position = UDim2.new(0, 10, 0, yOffset)
+    sliderFrame.BackgroundColor3 = Color3.new(0.1, 0.1, 0.2)
+    sliderFrame.BackgroundTransparency = 0.5
+    sliderFrame.BorderSizePixel = 1
+    sliderFrame.BorderColor3 = Color3.new(0.2, 0.2, 0.3)
+    
+    local sliderLabel = Instance.new("TextLabel", sliderFrame)
+    sliderLabel.Size = UDim2.new(0.5, 0, 1, 0)
+    sliderLabel.BackgroundTransparency = 1
+    sliderLabel.Text = "Smoothness: 5"
+    sliderLabel.TextColor3 = Color3.new(1, 1, 1)
+    sliderLabel.TextXAlignment = Enum.TextXAlignment.Left
+    sliderLabel.TextSize = 13
+    sliderLabel.Font = Enum.Font.Gotham
+    
+    local sliderBtn = Instance.new("TextButton", sliderFrame)
+    sliderBtn.Size = UDim2.new(0.25, 0, 0.7, 0)
+    sliderBtn.Position = UDim2.new(0.65, 0, 0.15, 0)
+    sliderBtn.BackgroundColor3 = Color3.new(0.2, 0.3, 0.4)
+    sliderBtn.BorderSizePixel = 1
+    sliderBtn.Text = "5"
+    sliderBtn.TextColor3 = Color3.new(1, 1, 1)
+    sliderBtn.TextSize = 13
+    sliderBtn.Font = Enum.Font.Gotham
+    
+    sliderBtn.MouseButton1Click:Connect(function()
+        local newVal = (Settings.AimbotSmoothness % 10) + 1
+        Settings.AimbotSmoothness = newVal
+        sliderBtn.Text = tostring(newVal)
+        sliderLabel.Text = string.format("Smoothness: %d", newVal)
+    end)
+    
+    -- Slider FOV
+    yOffset = yOffset + 35
+    local fovFrame = Instance.new("Frame", mainFrame)
+    fovFrame.Size = UDim2.new(1, -20, 0, 30)
+    fovFrame.Position = UDim2.new(0, 10, 0, yOffset)
+    fovFrame.BackgroundColor3 = Color3.new(0.1, 0.1, 0.2)
+    fovFrame.BackgroundTransparency = 0.5
+    fovFrame.BorderSizePixel = 1
+    fovFrame.BorderColor3 = Color3.new(0.2, 0.2, 0.3)
+    
+    local fovLabel = Instance.new("TextLabel", fovFrame)
+    fovLabel.Size = UDim2.new(0.5, 0, 1, 0)
+    fovLabel.BackgroundTransparency = 1
+    fovLabel.Text = "FOV: 200"
+    fovLabel.TextColor3 = Color3.new(1, 1, 1)
+    fovLabel.TextXAlignment = Enum.TextXAlignment.Left
+    fovLabel.TextSize = 13
+    fovLabel.Font = Enum.Font.Gotham
+    
+    local fovBtn = Instance.new("TextButton", fovFrame)
+    fovBtn.Size = UDim2.new(0.25, 0, 0.7, 0)
+    fovBtn.Position = UDim2.new(0.65, 0, 0.15, 0)
+    fovBtn.BackgroundColor3 = Color3.new(0.2, 0.3, 0.4)
+    fovBtn.BorderSizePixel = 1
+    fovBtn.Text = "200"
+    fovBtn.TextColor3 = Color3.new(1, 1, 1)
+    fovBtn.TextSize = 13
+    fovBtn.Font = Enum.Font.Gotham
+    
+    fovBtn.MouseButton1Click:Connect(function()
+        local values = {50, 100, 150, 200, 250, 300, 360}
+        local currentIndex = 3
+        for i, v in ipairs(values) do
+            if v == Settings.AimbotFOV then
+                currentIndex = i
+                break
+            end
+        end
+        local newIndex = (currentIndex % #values) + 1
+        Settings.AimbotFOV = values[newIndex]
+        fovBtn.Text = tostring(values[newIndex])
+        fovLabel.Text = string.format("FOV: %d", values[newIndex])
+    end)
+    
+    -- Speed Value Slider
+    yOffset = yOffset + 35
+    local speedFrame = Instance.new("Frame", mainFrame)
+    speedFrame.Size = UDim2.new(1, -20, 0, 30)
+    speedFrame.Position = UDim2.new(0, 10, 0, yOffset)
+    speedFrame.BackgroundColor3 = Color3.new(0.1, 0.1, 0.2)
+    speedFrame.BackgroundTransparency = 0.5
+    speedFrame.BorderSizePixel = 1
+    speedFrame.BorderColor3 = Color3.new(0.2, 0.2, 0.3)
+    
+    local speedLabel = Instance.new("TextLabel", speedFrame)
+    speedLabel.Size = UDim2.new(0.5, 0, 1, 0)
+    speedLabel.BackgroundTransparency = 1
+    speedLabel.Text = "Speed: 50"
+    speedLabel.TextColor3 = Color3.new(1, 1, 1)
+    speedLabel.TextXAlignment = Enum.TextXAlignment.Left
+    speedLabel.TextSize = 13
+    speedLabel.Font = Enum.Font.Gotham
+    
+    local speedBtn = Instance.new("TextButton", speedFrame)
+    speedBtn.Size = UDim2.new(0.25, 0, 0.7, 0)
+    speedBtn.Position = UDim2.new(0.65, 0, 0.15, 0)
+    speedBtn.BackgroundColor3 = Color3.new(0.2, 0.3, 0.4)
+    speedBtn.BorderSizePixel = 1
+    speedBtn.Text = "50"
+    speedBtn.TextColor3 = Color3.new(1, 1, 1)
+    speedBtn.TextSize = 13
+    speedBtn.Font = Enum.Font.Gotham
+    
+    speedBtn.MouseButton1Click:Connect(function()
+        local values = {16, 25, 35, 50, 65, 80, 100}
+        local currentIndex = 4
+        for i, v in ipairs(values) do
+            if v == Settings.SpeedValue then
+                currentIndex = i
+                break
+            end
+        end
+        local newIndex = (currentIndex % #values) + 1
+        Settings.SpeedValue = values[newIndex]
+        speedBtn.Text = tostring(values[newIndex])
+        speedLabel.Text = string.format("Speed: %d", values[newIndex])
+    end)
+    
+    -- Drag GUI
+    local dragging = false
+    local dragStart = nil
+    local dragOffset = nil
+    
+    title.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            dragOffset = mainFrame.Position
+        end
+    end)
+    
+    title.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+    
+    title.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = input.Position - dragStart
+            mainFrame.Position = UDim2.new(dragOffset.X.Scale, dragOffset.X.Offset + delta.X,
+                                          dragOffset.Y.Scale, dragOffset.Y.Offset + delta.Y)
+        end
+    end)
+    
+    -- Minimize Button
+    local minimizeBtn = Instance.new("TextButton", mainFrame)
+    minimizeBtn.Size = UDim2.new(0, 25, 0, 25)
+    minimizeBtn.Position = UDim2.new(1, -30, 0, 5)
+    minimizeBtn.BackgroundColor3 = Color3.new(0.2, 0.2, 0.3)
+    minimizeBtn.BorderSizePixel = 1
+    minimizeBtn.BorderColor3 = Color3.new(0.5, 0.5, 0.5)
+    minimizeBtn.Text = "_"
+    minimizeBtn.TextColor3 = Color3.new(1, 1, 1)
+    minimizeBtn.TextSize = 18
+    minimizeBtn.Font = Enum.Font.GothamBold
+    
+    local minimized = false
+    minimizeBtn.MouseButton1Click:Connect(function()
+        minimized = not minimized
+        mainFrame.Size = minimized and UDim2.new(0, 350, 0, 35) or UDim2.new(0, 350, 0, 520)
+    end)
+    
+    -- Close Button
+    local closeBtn = Instance.new("TextButton", mainFrame)
+    closeBtn.Size = UDim2.new(0, 25, 0, 25)
+    closeBtn.Position = UDim2.new(1, -55, 0, 5)
+    closeBtn.BackgroundColor3 = Color3.new(0.3, 0.1, 0.1)
+    closeBtn.BorderSizePixel = 1
+    closeBtn.BorderColor3 = Color3.new(0.5, 0, 0)
+    closeBtn.Text = "✕"
+    closeBtn.TextColor3 = Color3.new(1, 1, 1)
+    closeBtn.TextSize = 14
+    closeBtn.Font = Enum.Font.GothamBold
+    
+    closeBtn.MouseButton1Click:Connect(function()
+        screenGui:Destroy()
+    end)
+    
+    return screenGui
+end
+
+-- ============================================================
+-- ส่วนที่ 8: Hotkey
+-- ============================================================
+
+local function SetupHotkeys()
+    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        
+        if input.KeyCode == Enum.KeyCode.F1 then
+            Settings.ESP = not Settings.ESP
+            print("[Z3R0] ESP:", Settings.ESP and "ON" or "OFF")
+        elseif input.KeyCode == Enum.KeyCode.F2 then
+            Settings.Aimbot = not Settings.Aimbot
+            print("[Z3R0] Aimbot:", Settings.Aimbot and "ON" or "OFF")
+        elseif input.KeyCode == Enum.KeyCode.F3 then
+            Settings.AutoFarm = not Settings.AutoFarm
+            print("[Z3R0] AutoFarm:", Settings.AutoFarm and "ON" or "OFF")
+        elseif input.KeyCode == Enum.KeyCode.F4 then
+            Settings.SpeedHack = not Settings.SpeedHack
+            print("[Z3R0] SpeedHack:", Settings.SpeedHack and "ON" or "OFF")
+        elseif input.KeyCode == Enum.KeyCode.F5 then
+            Settings.Noclip = not Settings.Noclip
+            print("[Z3R0] Noclip:", Settings.Noclip and "ON" or "OFF")
+        elseif input.KeyCode == Enum.KeyCode.F6 then
+            Settings.Fly = not Settings.Fly
+            print("[Z3R0] Fly:", Settings.Fly and "ON" or "OFF")
+        elseif input.KeyCode == Enum.KeyCode.R and Settings.Teleport then
+            local target = GetClosestPlayer()
+            if target and target.Character then
+                local root = target.Character:FindFirstChild("HumanoidRootPart")
+                local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if root and myRoot then
+                    myRoot.CFrame = root.CFrame + Vector3.new(0, 5, 0)
+                    print("[Z3R0] Teleported to:", target.Name)
+                end
+            end
+        end
+    end)
+end
+
+-- ============================================================
+-- ส่วนที่ 9: Anti-Ban + Anti-Detection
+-- ============================================================
+
+local function AntiDetection()
+    -- ปิดการใช้งานฟังก์ชันตรวจจับ
+    local oldFind = game.FindFirstChild
+    game.FindFirstChild = function(self, name, ...)
+        local blocked = {
+            "AntiCheat", "AntiExploit", "Security", "BanManager", 
+            "ExploitDetector", "ScriptDetector", "AdminPanel"
+        }
+        for _, b in ipairs(blocked) do
+            if name:find(b) then
+                return nil
+            end
+        end
+        return oldFind(self, name, ...)
+    end
+    
+    -- ซ่อน GUI
+    local gui = LocalPlayer.PlayerGui:FindFirstChild("Z3R0_GUI")
+    if gui then
+        gui.Enabled = true
+        gui.DisplayOrder = -1
+    end
+    
+    -- ป
