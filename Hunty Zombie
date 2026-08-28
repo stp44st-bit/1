@@ -1,57 +1,35 @@
 --[[
 	========================================================================
-	☣️ HUNTY ZOMBIE ULTIMATE HUB v2.0 (MeeHub + Anti-Ban Edition) ☣️
-	Auto-Farm, Zombie ESP, Kill Aura & Survival Suite with Built-in Anti-Ban Shield
+	☣️ HUNTY ZOMBIES MEGA SUITE v5.5 (Flawless Pro Edition) ☣️
+	Zero-Lag Auto-Farm, Anti-Fling Mob Vacuum, Instant Target Switching,
+	Loot & Player ESP, Hitbox Revert, Anti-Void & Anti-Ban Suite
 	
-	Compatible with: Solara, Xeno, Wave, Fluxus, Delta, Codex, Arceus, MacSploit
+	Tested & Optimized for: Solara, Xeno, Wave, Fluxus, Delta, Codex, MacSploit
 	========================================================================
-	
-	🛡️ Security & Anti-Ban Features:
-	  - Hookmetamethod Anti-Kick (Blocks local Kick/Ban calls)
-	  - Anti-Cheat Remote Blocker (Blocks telemetry, flag, honeypot & report remotes)
-	  - WalkSpeed & JumpPower Property Spoofing (__index spoof to 16/50)
-	  - ScriptContext Error Cloak (Prevents analytics crash & error leaks)
-	  - Attack Interval Jitter (Humanized millisecond randomize to bypass rate-limits)
-	
-	Features:
-	  🌾 Auto Farm : Safe-Height Auto Kill (Floating above mobs), Auto Collect Loot/Coins, Auto Attack, Boss Priority
-	  ⚔️ Combat    : Zombie Head Aimbot, Silent Aim, Zombie Kill Aura, Massive Hitbox Expander, Rapid Fire
-	  👁️ Visuals   : Zombie ESP (Health & Distance), Boss Tag, Loot/Drop ESP, Chams, FullBright, Dark Fog Killer
-	  🏃 Movement  : Safe Platform Generator, Smooth Fly, Stepped Noclip, Speed Hack, Instant Teleport
-	  🔧 Utility   : Anti-AFK, FPS Boost (Particle & Debris Killer), Server Hop, Rejoin, Infinite Yield
-	
-	Keybinds:
-	  [F1] or [RightControl] = Toggle GUI
-	  [F2] = Toggle Auto Farm
-	  [F3] = Toggle Zombie ESP
-	  [F4] = Toggle Fly Mode
-	  [F5] = Toggle Speed Boost
-	  [F6] = Toggle Kill Aura
-	  [Ctrl + Click] = Click Teleport
 --]]
 
 --------------------------------------------------------------
--- 1. ANTI-DUPLICATE & INITIALIZATION
+-- 1. INITIALIZATION & ANTI-DUPLICATE
 --------------------------------------------------------------
 if not game:IsLoaded() then game.Loaded:Wait() end
 
 local get_genv = getgenv or function() return _G end
 local env = get_genv()
 
-if env["HUNTY_ZOMBIE_LOADED"] then
+if env["HUNTY_ZOMBIES_V5_LOADED"] then
 	pcall(function()
 		game:GetService("StarterGui"):SetCore("SendNotification", {
-			Title = "☣️ Hunty Zombie Hub",
-			Text = "Script already active! Press [F1] or [RightControl] to open.",
+			Title = "☣️ Hunty Zombies v5.5",
+			Text = "Script is already running! Press [F1] or [RightControl] to toggle.",
 			Duration = 4
 		})
 	end)
 	return
 end
-env["HUNTY_ZOMBIE_LOADED"] = true
+env["HUNTY_ZOMBIES_V5_LOADED"] = true
 
 --------------------------------------------------------------
--- 2. CORE SERVICES
+-- 2. SERVICES & ENVIRONMENT REFERENCES
 --------------------------------------------------------------
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -63,7 +41,8 @@ local TeleportService = game:GetService("TeleportService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 local VirtualUser = game:GetService("VirtualUser")
-local ScriptContext = game:GetService("ScriptContext")
+local VirtualInputManager = nil
+pcall(function() VirtualInputManager = game:GetService("VirtualInputManager") end)
 
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
@@ -74,129 +53,32 @@ workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
 end)
 
 --------------------------------------------------------------
--- 3. ADVANCED ANTI-BAN & ANTI-DETECTION SHIELD ENGINE
---------------------------------------------------------------
-local ShieldStatus = {
-	AntiKickBlocked = 0,
-	RemotesBlocked = 0,
-	SpoofedProperties = 0,
-	Enabled = true
-}
-
-local BlockedRemoteKeywords = {
-	"ban", "kick", "report", "detection", "anticheat", "anti_cheat", "cheat",
-	"exploit", "flag", "honeypot", "security", "teleportcheck", "speedcheck",
-	"walkspeedcheck", "suspicious", "analytics", "logservice", "tamper",
-	"integrity", "crashreport", "clientlog", "statcheck", "punish"
-}
-
-local function SafeNotify(title, text, duration)
-	pcall(function()
-		StarterGui:SetCore("SendNotification", {
-			Title = title or "☣️ Hunty Zombie",
-			Text = text or "",
-			Duration = duration or 3
-		})
-	end)
-end
-
--- Hook Engine
-pcall(function()
-	local hook_mm = hookmetamethod or (hookfunction and function(target, hook) return hookfunction(target, hook) end)
-	local get_raw_mt = getrawmetatable or debug.getmetatable or function(t) return getmetatable(t) end
-	local set_ro = setreadonly or make_writeable or function(mt, val) end
-
-	if get_raw_mt then
-		local gameMt = get_raw_mt(game)
-		if gameMt then
-			set_ro(gameMt, false)
-			local oldNamecall = gameMt.__namecall
-			local oldIndex = gameMt.__index
-			local newc = newcclosure or function(f) return f end
-
-			-- 1. __namecall Hook (Anti-Kick & Suspicious Remote Blocker)
-			if hook_mm then
-				oldNamecall = hook_mm(game, "__namecall", newc(function(self, ...)
-					local method = getnamecallmethod and getnamecallmethod() or ""
-					local args = {...}
-
-					-- Anti-Kick Protection
-					if (method == "Kick" or method == "kick") and (self == LocalPlayer or self == Players) then
-						ShieldStatus.AntiKickBlocked = ShieldStatus.AntiKickBlocked + 1
-						warn("[🛡️ ANTI-BAN] Blocked Kick Attempt! Reason: " .. tostring(args[1] or "No reason provided"))
-						SafeNotify("🛡️ SHIELD BLOCKED KICK", "Blocked kick attempt: " .. tostring(args[1] or "Unknown"), 4)
-						return nil
-					end
-
-					-- Suspicious Remote Blocker
-					if (method == "FireServer" or method == "InvokeServer") and typeof(self) == "Instance" then
-						local remoteName = self.Name:lower()
-						for _, keyword in ipairs(BlockedRemoteKeywords) do
-							if remoteName:find(keyword) then
-								ShieldStatus.RemotesBlocked = ShieldStatus.RemotesBlocked + 1
-								warn("[🛡️ ANTI-BAN] Blocked Malicious Remote Call to: " .. self:GetFullName())
-								return nil
-							end
-						end
-					end
-
-					return oldNamecall(self, ...)
-				end))
-
-				-- 2. __index Hook (WalkSpeed & JumpPower Spoofing)
-				oldIndex = hook_mm(game, "__index", newc(function(self, key)
-					if ShieldStatus.Enabled and typeof(self) == "Instance" and self:IsA("Humanoid") and self.Parent == LocalPlayer.Character then
-						if key == "WalkSpeed" then
-							return 16
-						elseif key == "JumpPower" then
-							return 50
-						elseif key == "JumpHeight" then
-							return 7.2
-						end
-					end
-					return oldIndex(self, key)
-				end))
-			end
-			set_ro(gameMt, true)
-		end
-	end
-end)
-
--- Script Error Telemetry Cloak
-pcall(function()
-	if ScriptContext and ScriptContext.Error then
-		ScriptContext.Error:Connect(function(msg, trace, scriptObj)
-			-- Suppress executor error logging
-		end)
-	end
-end)
-
-print("[🛡️ ANTI-BAN] Security Shield v2.0 Activated successfully!")
-
---------------------------------------------------------------
--- 4. STATE & CONFIGURATION
+-- 3. GLOBAL CONFIGURATION & STATE
 --------------------------------------------------------------
 local State = {
 	-- Auto Farm
 	AutoFarm = false,
-	FarmMode = "Above", -- "Above", "Behind", "Distance"
-	FarmHeight = 7.5,
+	FarmMode = "Above",      -- "Above", "Behind", "Distance", "Under"
+	FarmHeight = 8.5,
+	BringMobs = false,       -- Mob Magnet (Vacuum)
 	AutoAttack = true,
+	AutoSkills = true,
+	AutoReload = true,
 	AutoLoot = true,
-	LootRadius = 60,
+	LootRadius = 85,
 	TargetBossOnly = false,
-	HumanizedJitter = true, -- Anti-Ban random micro delay
+	AttackInterval = 0.035,
 
-	-- Combat
+	-- Combat & Weapons
 	AimAssist = false,
 	AimPart = "Head",
-	AimFOV = 150,
-	SilentAim = false,
+	AimFOV = 200,
+	AimSmoothness = 0.5,
 	KillAura = false,
-	KillAuraDist = 20,
+	KillAuraDist = 32,
 	HitboxExpand = false,
-	HitboxSize = 14,
-	RapidAttack = false,
+	HitboxSize = 25,
+	RapidFire = true,
 	ClickTP = false,
 
 	-- Visuals
@@ -214,13 +96,13 @@ local State = {
 	Speed = false,
 	SpeedMult = 2.5,
 	Fly = false,
-	FlySpeed = 60,
+	FlySpeed = 65,
 	Noclip = false,
 	SafePlatform = false,
 	LowGravity = false,
 	AntiVoid = true,
 
-	-- Utility
+	-- Utility & Protection
 	AntiAFK = true,
 	FPSDisplay = true,
 	LagReduce = false,
@@ -229,19 +111,26 @@ local State = {
 
 local ChamsColors = {
 	Color3.fromRGB(57, 255, 20),   -- Toxic Neon Green
-	Color3.fromRGB(255, 60, 0),    -- Blood Orange
-	Color3.fromRGB(0, 230, 255),   -- Cyber Ice
-	Color3.fromRGB(255, 235, 0),   -- Radioactive Yellow
-	Color3.fromRGB(200, 50, 255),  -- Plasma Purple
+	Color3.fromRGB(255, 55, 30),   -- Blood Red
+	Color3.fromRGB(0, 230, 255),   -- Cyber Cyan
+	Color3.fromRGB(255, 225, 0),   -- Gold
+	Color3.fromRGB(200, 50, 255),  -- Hyper Violet
 	Color3.fromRGB(255, 255, 255)  -- Pure White
 }
-local ChamsColorNames = {"Toxic Green", "Blood Orange", "Cyber Ice", "Radioactive Yellow", "Plasma Purple", "Pure White"}
+local ChamsColorNames = {"Toxic Green", "Blood Red", "Cyber Cyan", "Gold", "Hyper Violet", "Pure White"}
 
 local Connections = {}
 local ZombieESPStore = {}
-local SafePart = nil
+local PlayerESPStore = {}
+local LootESPStore = {}
+local ModifiedHitboxes = {} -- Stores original sizes for clean restoration
+local SafePlatformPart = nil
+local FarmBV = nil
 local IsClosed = false
 local GuiVisible = true
+local CachedZombies = {}
+local LastScanTime = 0
+local FoundCombatRemotes = {}
 
 local OldLighting = {
 	Ambient = Lighting.Ambient,
@@ -253,45 +142,165 @@ local OldLighting = {
 }
 
 --------------------------------------------------------------
--- 5. SCANNER & TARGETING HELPERS
+-- 4. BULLETPROOF ANTI-BAN SHIELD (SAFE METAMETHOD HOOK)
 --------------------------------------------------------------
-local function GetZombies()
-	local zombies = {}
+local ShieldStats = {
+	KicksBlocked = 0,
+	RemotesBlocked = 0
+}
+
+local DangerousKeywords = {
+	"ban", "kick", "reportplayer", "anticheatban", "reportcheat", "exploitdetected", "speedhackdetected"
+}
+
+pcall(function()
+	local hook_mm = hookmetamethod or (hookfunction and function(target, hook) return hookfunction(target, hook) end)
+	local get_raw_mt = getrawmetatable or debug.getmetatable or function(t) return getmetatable(t) end
+	local set_ro = setreadonly or make_writeable or function(mt, val) end
+
+	if get_raw_mt then
+		local gameMt = get_raw_mt(game)
+		if gameMt then
+			set_ro(gameMt, false)
+			local oldNamecall = gameMt.__namecall
+			local newc = newcclosure or function(f) return f end
+
+			if hook_mm then
+				oldNamecall = hook_mm(game, "__namecall", newc(function(self, ...)
+					local method = getnamecallmethod and getnamecallmethod() or ""
+					local args = {...}
+
+					-- Intercept Client Kick
+					if (method == "Kick" or method == "kick") and (self == LocalPlayer or self == Players) then
+						ShieldStats.KicksBlocked = ShieldStats.KicksBlocked + 1
+						warn("[🛡️ ANTI-BAN] Intercepted kick call! Reason: " .. tostring(args[1] or "None"))
+						return nil
+					end
+
+					-- Intercept Honeypot/Flag Remotes
+					if (method == "FireServer" or method == "InvokeServer") and typeof(self) == "Instance" then
+						local lowerName = self.Name:lower()
+						for _, bad in ipairs(DangerousKeywords) do
+							if lowerName == bad or lowerName:find("^" .. bad) then
+								ShieldStats.RemotesBlocked = ShieldStats.RemotesBlocked + 1
+								warn("[🛡️ ANTI-BAN] Intercepted flag remote: " .. self:GetFullName())
+								return nil
+							end
+						end
+					end
+
+					return oldNamecall(self, ...)
+				end))
+			end
+			set_ro(gameMt, true)
+		end
+	end
+end)
+
+--------------------------------------------------------------
+-- 5. ADVANCED RECURSIVE MOB SCANNER
+--------------------------------------------------------------
+local function GetHealthInfo(model, hum)
+	if hum and typeof(hum) == "Instance" and hum:IsA("Humanoid") then
+		return math.max(hum.Health, 0), math.max(hum.MaxHealth, 1)
+	end
+	local hObj = model:FindFirstChild("Health") or model:FindFirstChild("HP")
+	if hObj and (hObj:IsA("NumberValue") or hObj:IsA("IntValue") or hObj:IsA("DoubleConstrainedValue")) then
+		return math.max(hObj.Value, 0), 100
+	end
+	local hAttr = model:GetAttribute("Health") or model:GetAttribute("HP") or model:GetAttribute("health") or model:GetAttribute("hp")
+	if typeof(hAttr) == "number" then
+		local maxAttr = model:GetAttribute("MaxHealth") or model:GetAttribute("MaxHP") or 100
+		return math.max(hAttr, 0), math.max(maxAttr, 1)
+	end
+	return 100, 100
+end
+
+local function FindRootPart(model)
+	return model:FindFirstChild("HumanoidRootPart")
+		or model:FindFirstChild("Head")
+		or model:FindFirstChild("Torso")
+		or model:FindFirstChild("UpperTorso")
+		or model:FindFirstChild("Hitbox")
+		or model:FindFirstChild("Root")
+		or model.PrimaryPart
+		or model:FindFirstChildWhichIsA("BasePart")
+end
+
+local function IsZombieCandidate(model)
+	if not model or not model:IsA("Model") then return false end
+	if model == LocalPlayer.Character then return false end
+	if Players:GetPlayerFromCharacter(model) then return false end
+
+	local hum = model:FindFirstChildOfClass("Humanoid")
+	local curHp, maxHp = GetHealthInfo(model, hum)
+	if curHp <= 0 then return false end
+
+	local root = FindRootPart(model)
+	if not root or not root.Parent then return false end
+
+	local name = model.Name:lower()
+	local parentName = model.Parent and model.Parent.Name:lower() or ""
+
+	local isMatch = hum ~= nil
+		or name:find("zombie") or name:find("mob") or name:find("enemy") or name:find("boss") or name:find("monster") or name:find("crawler") or name:find("brute")
+		or parentName:find("zombie") or parentName:find("mob") or parentName:find("enemy") or parentName:find("monster") or parentName:find("live") or parentName:find("entity")
+
+	if isMatch then
+		local isBoss = name:find("boss") or name:find("giant") or name:find("brute") or name:find("mutant") or maxHp > 500
+		return true, root, hum, curHp, maxHp, isBoss
+	end
+	return false
+end
+
+local function ScanAllZombies()
+	local results = {}
 	local candidates = {}
 
-	for _, name in ipairs({"Zombies", "Mobs", "Enemies", "Monsters", "Entities", "NPCs", "WaveZombies"}) do
-		local folder = workspace:FindFirstChild(name)
+	for _, folderName in ipairs({"Mobs", "Zombies", "Enemies", "Monsters", "Entities", "NPCs", "Live", "CurrentMap", "GameFolder", "Map", "Wave", "Spawns", "World"}) do
+		local folder = workspace:FindFirstChild(folderName)
 		if folder then
-			for _, c in ipairs(folder:GetChildren()) do table.insert(candidates, c) end
-		end
-	end
-
-	for _, c in ipairs(workspace:GetChildren()) do
-		if c:IsA("Model") and c ~= LocalPlayer.Character and not Players:GetPlayerFromCharacter(c) then
-			table.insert(candidates, c)
-		end
-	end
-
-	for _, model in ipairs(candidates) do
-		if model:IsA("Model") then
-			local hum = model:FindFirstChildOfClass("Humanoid")
-			local hrp = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso") or model:FindFirstChild("UpperTorso") or model:FindFirstChild("Head")
-			if hum and hrp and hum.Health > 0 then
-				local isPlayer = Players:GetPlayerFromCharacter(model)
-				if not isPlayer then
-					table.insert(zombies, {
-						Model = model,
-						Humanoid = hum,
-						Root = hrp,
-						IsBoss = model.Name:lower():find("boss") or model.Name:lower():find("giant") or model.Name:lower():find("brute") or hum.MaxHealth > 500
-					})
-				end
+			for _, obj in ipairs(folder:GetDescendants()) do
+				if obj:IsA("Model") then table.insert(candidates, obj) end
 			end
 		end
 	end
-	return zombies
+
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if obj:IsA("Model") then table.insert(candidates, obj) end
+	end
+
+	local seen = {}
+	for _, model in ipairs(candidates) do
+		if not seen[model] then
+			seen[model] = true
+			local valid, root, hum, curHp, maxHp, isBoss = IsZombieCandidate(model)
+			if valid and root and root.Parent then
+				table.insert(results, {
+					Model = model,
+					Root = root,
+					Humanoid = hum,
+					CurrentHP = curHp,
+					MaxHP = maxHp,
+					IsBoss = isBoss
+				})
+			end
+		end
+	end
+
+	CachedZombies = results
+	LastScanTime = tick()
+	return results
 end
 
+local function GetZombies()
+	if tick() - LastScanTime > 0.3 then
+		return ScanAllZombies()
+	end
+	return CachedZombies
+end
+
+-- Instant Live Health Check for Target Acquisition
 local function GetClosestZombie(maxDist, bossOnly)
 	maxDist = maxDist or math.huge
 	local closest, closestDist = nil, maxDist
@@ -300,11 +309,15 @@ local function GetClosestZombie(maxDist, bossOnly)
 	local myPos = myChar.HumanoidRootPart.Position
 
 	for _, z in ipairs(GetZombies()) do
-		if not bossOnly or z.IsBoss then
-			local dist = (z.Root.Position - myPos).Magnitude
-			if dist < closestDist then
-				closestDist = dist
-				closest = z
+		if z.Root and z.Root.Parent and (not bossOnly or z.IsBoss) then
+			local hum = z.Model:FindFirstChildOfClass("Humanoid")
+			local curHp = hum and hum.Health or z.CurrentHP
+			if curHp > 0 then
+				local dist = (z.Root.Position - myPos).Magnitude
+				if dist < closestDist then
+					closestDist = dist
+					closest = z
+				end
 			end
 		end
 	end
@@ -317,14 +330,16 @@ local function GetClosestZombieToMouse(fovLimit)
 	local mousePos = Vector2.new(Mouse.X, Mouse.Y)
 
 	for _, z in ipairs(GetZombies()) do
-		local targetPart = z.Model:FindFirstChild(State.AimPart) or z.Root
-		if targetPart then
-			local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-			if onScreen then
-				local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-				if dist < closestDist then
-					closestDist = dist
-					closest = z
+		if z.Root and z.Root.Parent then
+			local targetPart = z.Model:FindFirstChild(State.AimPart) or z.Root
+			if targetPart then
+				local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+				if onScreen then
+					local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+					if dist < closestDist then
+						closestDist = dist
+						closest = z
+					end
 				end
 			end
 		end
@@ -332,32 +347,125 @@ local function GetClosestZombieToMouse(fovLimit)
 	return closest
 end
 
-local function AttackEquipped()
+--------------------------------------------------------------
+-- 6. ASYNCHRONOUS AUTO ATTACK & SKILL TRIGGER
+--------------------------------------------------------------
+task.spawn(function()
 	pcall(function()
-		local char = LocalPlayer.Character
-		if not char then return end
-		local tool = char:FindFirstChildOfClass("Tool")
-		if tool then
-			tool:Activate()
-			for _, v in ipairs(tool:GetDescendants()) do
-				if v:IsA("RemoteEvent") then
-					v:FireServer()
+		for _, v in ipairs(ReplicatedStorage:GetDescendants()) do
+			if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
+				local name = v.Name:lower()
+				if name:find("attack") or name:find("hit") or name:find("damage") or name:find("shoot") or name:find("swing") or name:find("fire") or name:find("weapon") or name:find("combat") then
+					table.insert(FoundCombatRemotes, v)
 				end
 			end
-		else
-			local bpTool = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
-			if bpTool and char:FindFirstChildOfClass("Humanoid") then
-				char.Humanoid:EquipTool(bpTool)
-			end
 		end
+	end)
+end)
+
+local function TriggerAutoAttack(targetZombie)
+	task.spawn(function()
+		pcall(function()
+			local myChar = LocalPlayer.Character
+			if not myChar then return end
+
+			local cx = (Camera.ViewportSize.X > 0) and (Camera.ViewportSize.X / 2) or 500
+			local cy = (Camera.ViewportSize.Y > 0) and (Camera.ViewportSize.Y / 2) or 300
+
+			-- Method 1: Precision Viewport Mouse Click with Cycle
+			if VirtualInputManager then
+				VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
+				task.wait(0.01)
+				VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
+			end
+
+			-- Method 2: mouse1click / mouse1press executor function
+			if mouse1click then
+				mouse1click()
+			elseif mouse1press and mouse1release then
+				mouse1press()
+				task.wait(0.01)
+				mouse1release()
+			end
+
+			-- Method 3: VirtualUser Button1Down
+			if VirtualUser then
+				VirtualUser:CaptureController()
+				VirtualUser:Button1Down(Vector2.new(cx, cy))
+				task.wait(0.01)
+				VirtualUser:Button1Up(Vector2.new(cx, cy))
+			end
+
+			-- Method 4: Tool Activation & Tool Remotes
+			local tool = myChar:FindFirstChildOfClass("Tool")
+			if tool then
+				tool:Activate()
+				for _, v in ipairs(tool:GetDescendants()) do
+					if v:IsA("RemoteEvent") then
+						if targetZombie and targetZombie.Root then
+							v:FireServer(targetZombie.Root, targetZombie.Root.Position)
+						else
+							v:FireServer()
+						end
+					end
+				end
+			else
+				local bpTool = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
+				if bpTool and myChar:FindFirstChildOfClass("Humanoid") then
+					myChar.Humanoid:EquipTool(bpTool)
+				end
+			end
+
+			-- Method 5: Direct ReplicatedStorage Combat Remotes
+			if targetZombie and targetZombie.Root then
+				for _, remote in ipairs(FoundCombatRemotes) do
+					if remote:IsA("RemoteEvent") then
+						pcall(function()
+							remote:FireServer(targetZombie.Root, targetZombie.Model, targetZombie.Root.Position)
+						end)
+					end
+				end
+			end
+		end)
+	end)
+end
+
+local function TriggerSkillsAndReload()
+	task.spawn(function()
+		pcall(function()
+			if VirtualInputManager then
+				if State.AutoSkills then
+					for _, key in ipairs({Enum.KeyCode.Q, Enum.KeyCode.E, Enum.KeyCode.F}) do
+						VirtualInputManager:SendKeyEvent(true, key, false, game)
+						task.wait(0.005)
+						VirtualInputManager:SendKeyEvent(false, key, false, game)
+					end
+				end
+				if State.AutoReload then
+					VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.R, false, game)
+					task.wait(0.005)
+					VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.R, false, game)
+				end
+			end
+		end)
 	end)
 end
 
 --------------------------------------------------------------
--- 6. GUI CONSTRUCTION
+-- 7. GUI SYSTEM (Neon Biohazard Theme)
 --------------------------------------------------------------
+local function SafeNotify(title, text, duration)
+	pcall(function()
+		StarterGui:SetCore("SendNotification", {
+			Title = title or "☣️ Hunty Zombies",
+			Text = text or "",
+			Duration = duration or 3
+		})
+	end)
+end
+
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "HUNTY_ZOMBIE_MEEHUB"
+ScreenGui.Name = "HUNTY_ZOMBIES_MEEHUB_V5"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
@@ -378,8 +486,8 @@ MainFrame.Name = "MainFrame"
 MainFrame.Parent = ScreenGui
 MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
-MainFrame.Size = UDim2.new(0, 620, 0, 425)
-MainFrame.BackgroundColor3 = Color3.fromRGB(16, 20, 16)
+MainFrame.Size = UDim2.new(0, 640, 0, 435)
+MainFrame.BackgroundColor3 = Color3.fromRGB(14, 18, 14)
 MainFrame.BorderSizePixel = 0
 MainFrame.ClipsDescendants = false
 
@@ -393,7 +501,7 @@ MainStroke.Thickness = 1.8
 MainStroke.Transparency = 0.1
 MainStroke.Parent = MainFrame
 
--- Custom Smooth Draggable
+-- Custom Smooth Draggable Implementation
 do
 	local dragging, dragInput, dragStart, startPos
 	local function update(input)
@@ -433,7 +541,7 @@ local TitleBar = Instance.new("Frame")
 TitleBar.Name = "TitleBar"
 TitleBar.Parent = MainFrame
 TitleBar.Size = UDim2.new(1, 0, 0, 42)
-TitleBar.BackgroundColor3 = Color3.fromRGB(24, 30, 24)
+TitleBar.BackgroundColor3 = Color3.fromRGB(22, 28, 22)
 TitleBar.BorderSizePixel = 0
 
 local TitleCorner = Instance.new("UICorner")
@@ -444,19 +552,19 @@ local TitleFix = Instance.new("Frame")
 TitleFix.Parent = TitleBar
 TitleFix.Size = UDim2.new(1, 0, 0, 12)
 TitleFix.Position = UDim2.new(0, 0, 1, -12)
-TitleFix.BackgroundColor3 = Color3.fromRGB(24, 30, 24)
+TitleFix.BackgroundColor3 = Color3.fromRGB(22, 28, 22)
 TitleFix.BorderSizePixel = 0
 
 local TitleText = Instance.new("TextLabel")
 TitleText.Parent = TitleBar
-TitleText.Size = UDim2.new(0.65, 0, 1, 0)
+TitleText.Size = UDim2.new(0.7, 0, 1, 0)
 TitleText.Position = UDim2.new(0, 16, 0, 0)
 TitleText.BackgroundTransparency = 1
 TitleText.Font = Enum.Font.GothamBlack
-TitleText.Text = "☣️ HUNTY ZOMBIE <font color='#39FF14'>v2.0</font> <font color='#00FFCC'>[🛡️ ANTI-BAN ACTIVE]</font>"
+TitleText.Text = "☣️ HUNTY ZOMBIES <font color='#39FF14'>v5.5</font> <font color='#00FFCC'>[PRO EDITION]</font>"
 TitleText.RichText = true
 TitleText.TextColor3 = Color3.fromRGB(255, 255, 255)
-TitleText.TextSize = 14.5
+TitleText.TextSize = 14
 TitleText.TextXAlignment = Enum.TextXAlignment.Left
 
 -- Buttons
@@ -496,13 +604,13 @@ TabBar.Name = "TabBar"
 TabBar.Parent = MainFrame
 TabBar.Size = UDim2.new(1, -24, 0, 32)
 TabBar.Position = UDim2.new(0, 12, 0, 48)
-TabBar.BackgroundColor3 = Color3.fromRGB(20, 26, 20)
+TabBar.BackgroundColor3 = Color3.fromRGB(18, 24, 18)
 TabBar.BorderSizePixel = 0
 local TabCorner = Instance.new("UICorner")
 TabCorner.CornerRadius = UDim.new(0, 8)
 TabCorner.Parent = TabBar
 
-local TabNames = {"🌾 Auto Farm", "⚔️ Combat", "👁️ Visuals", "🏃 Movement", "🛡️ Anti-Ban", "🔧 Utility"}
+local TabNames = {"🌾 Auto Farm", "⚔️ Combat", "👁️ Visuals", "🏃 Movement", "🔍 Diagnostic", "🔧 Utility"}
 local TabButtons = {}
 local Pages = {}
 
@@ -520,7 +628,7 @@ for i, name in ipairs(TabNames) do
 	btn.Parent = TabBar
 	btn.Size = UDim2.new(1 / #TabNames, -4, 1, -6)
 	btn.Position = UDim2.new((1 / #TabNames) * (i - 1), 2, 0, 3)
-	btn.BackgroundColor3 = (i == 1) and Color3.fromRGB(45, 180, 25) or Color3.fromRGB(28, 36, 28)
+	btn.BackgroundColor3 = (i == 1) and Color3.fromRGB(45, 180, 25) or Color3.fromRGB(26, 34, 26)
 	btn.BorderSizePixel = 0
 	btn.Font = Enum.Font.GothamBold
 	btn.Text = name
@@ -539,7 +647,7 @@ for i, name in ipairs(TabNames) do
 	page.BorderSizePixel = 0
 	page.ScrollBarThickness = 5
 	page.ScrollBarImageColor3 = Color3.fromRGB(57, 255, 20)
-	page.CanvasSize = UDim2.new(0, 0, 0, 440)
+	page.CanvasSize = UDim2.new(0, 0, 0, 460)
 	page.Visible = (i == 1)
 	Pages[i] = page
 end
@@ -550,7 +658,7 @@ local function SwitchTab(index)
 		if i == index then
 			TabButtons[i].BackgroundColor3 = (index == 5) and Color3.fromRGB(0, 180, 220) or Color3.fromRGB(45, 180, 25)
 		else
-			TabButtons[i].BackgroundColor3 = Color3.fromRGB(28, 36, 28)
+			TabButtons[i].BackgroundColor3 = Color3.fromRGB(26, 34, 26)
 		end
 	end
 end
@@ -559,13 +667,13 @@ for i, btn in ipairs(TabButtons) do
 	btn.MouseButton1Click:Connect(function() SwitchTab(i) end)
 end
 
--- Bottom Status Bar
+-- Status Bar
 local StatusBar = Instance.new("Frame")
 StatusBar.Name = "StatusBar"
 StatusBar.Parent = MainFrame
 StatusBar.Size = UDim2.new(1, -24, 0, 24)
 StatusBar.Position = UDim2.new(0, 12, 1, -30)
-StatusBar.BackgroundColor3 = Color3.fromRGB(20, 26, 20)
+StatusBar.BackgroundColor3 = Color3.fromRGB(18, 24, 18)
 StatusBar.BorderSizePixel = 0
 local StatusCorner = Instance.new("UICorner")
 StatusCorner.CornerRadius = UDim.new(0, 6)
@@ -577,8 +685,8 @@ StatusLabel.Size = UDim2.new(1, -16, 1, 0)
 StatusLabel.Position = UDim2.new(0, 8, 0, 0)
 StatusLabel.BackgroundTransparency = 1
 StatusLabel.Font = Enum.Font.GothamMedium
-StatusLabel.Text = "🛡️ Shield: ACTIVE | [F1]=UI [F2]=Farm [F3]=ESP [F4]=Fly [F5]=Speed [F6]=Aura"
-StatusLabel.TextColor3 = Color3.fromRGB(160, 220, 180)
+StatusLabel.Text = "☣️ [F1]=UI [F2]=Farm [F3]=ESP [F4]=Fly [F5]=Speed [F6]=Aura | Ready"
+StatusLabel.TextColor3 = Color3.fromRGB(160, 220, 170)
 StatusLabel.TextSize = 11
 StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
 
@@ -586,9 +694,9 @@ StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
 local HudFrame = Instance.new("Frame")
 HudFrame.Name = "HUD_Zombie"
 HudFrame.Parent = ScreenGui
-HudFrame.Size = UDim2.new(0, 210, 0, 26)
+HudFrame.Size = UDim2.new(0, 220, 0, 26)
 HudFrame.Position = UDim2.new(0, 15, 0, 15)
-HudFrame.BackgroundColor3 = Color3.fromRGB(16, 20, 16)
+HudFrame.BackgroundColor3 = Color3.fromRGB(15, 18, 15)
 HudFrame.BackgroundTransparency = 0.25
 HudFrame.BorderSizePixel = 0
 local HudCorner = Instance.new("UICorner")
@@ -604,12 +712,12 @@ HudLabel.Parent = HudFrame
 HudLabel.Size = UDim2.new(1, 0, 1, 0)
 HudLabel.BackgroundTransparency = 1
 HudLabel.Font = Enum.Font.GothamBold
-HudLabel.Text = "FPS: -- | Ping: -- | 🛡️ Safe"
+HudLabel.Text = "FPS: -- | Ping: -- | ☣️ Mobs: 0"
 HudLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 HudLabel.TextSize = 10.5
 
 --------------------------------------------------------------
--- 7. COMPONENT GENERATORS
+-- 8. UI GENERATOR HELPERS
 --------------------------------------------------------------
 local function CreateSectionHeader(parent, title, yOffset)
 	local label = Instance.new("TextLabel")
@@ -692,15 +800,15 @@ local function CreateActionBtn(parent, title, position, callback)
 end
 
 --------------------------------------------------------------
--- 8. POPULATING PAGES
+-- 9. POPULATING PAGES
 --------------------------------------------------------------
 
 -- ==================== PAGE 1: AUTO FARM ====================
 local P1 = Pages[1]
-CreateSectionHeader(P1, "Zombie Farm Controls", 0)
+CreateSectionHeader(P1, "Core Auto Farm Engine", 0)
 local AutoFarmBtn = CreateToggle(P1, "Auto Farm Mobs", State.AutoFarm, UDim2.new(0, 2, 0, 24), function(val)
 	State.AutoFarm = val
-	SafeNotify("Auto Farm", val and "Started! Floating safely above zombies." or "Stopped.", 2)
+	SafeNotify("Auto Farm", val and "Started! Targeting all detected mobs." or "Stopped.", 2)
 end)
 
 local FarmModeBtn = CreateActionBtn(P1, "Mode: Above (Safe)", UDim2.new(0.34, 2, 0, 24), function(btn)
@@ -716,66 +824,43 @@ local FarmModeBtn = CreateActionBtn(P1, "Mode: Above (Safe)", UDim2.new(0.34, 2,
 	end
 end)
 
-local HeightBtn = CreateActionBtn(P1, "Farm Height: " .. State.FarmHeight .. " Studs", UDim2.new(0.68, 2, 0, 24), function(btn)
-	State.FarmHeight = State.FarmHeight + 2.5
-	if State.FarmHeight > 15 then State.FarmHeight = 5 end
-	btn.Text = "Farm Height: " .. State.FarmHeight .. " Studs"
+local HeightBtn = CreateActionBtn(P1, "Height: " .. State.FarmHeight .. " Studs", UDim2.new(0.68, 2, 0, 24), function(btn)
+	State.FarmHeight = State.FarmHeight + 2
+	if State.FarmHeight > 16 then State.FarmHeight = 6 end
+	btn.Text = "Height: " .. State.FarmHeight .. " Studs"
 end)
 
-CreateToggle(P1, "Boss Target Only", State.TargetBossOnly, UDim2.new(0, 2, 0, 66), function(val)
-	State.TargetBossOnly = val
+CreateToggle(P1, "🧲 Bring Mobs (Vacuum)", State.BringMobs, UDim2.new(0, 2, 0, 66), function(val)
+	State.BringMobs = val
+	SafeNotify("Mob Magnet", val and "Pulling all mobs in front of you!" or "Disabled", 2)
 end)
 
-CreateToggle(P1, "Auto Weapon Trigger", State.AutoAttack, UDim2.new(0.34, 2, 0, 66), function(val)
-	State.AutoAttack = val
-end)
+CreateToggle(P1, "Auto Attack Trigger", State.AutoAttack, UDim2.new(0.34, 2, 0, 66), function(val) State.AutoAttack = val end)
+CreateToggle(P1, "Auto Skills (Q/E/F)", State.AutoSkills, UDim2.new(0.68, 2, 0, 66), function(val) State.AutoSkills = val end)
 
-CreateToggle(P1, "Auto Collect Drops", State.AutoLoot, UDim2.new(0.68, 2, 0, 66), function(val)
-	State.AutoLoot = val
-end)
+CreateSectionHeader(P1, "Drop Collector & Teleports", 110)
+CreateToggle(P1, "Auto Collect Drops", State.AutoLoot, UDim2.new(0, 2, 0, 134), function(val) State.AutoLoot = val end)
+CreateToggle(P1, "Auto Reload (R)", State.AutoReload, UDim2.new(0.34, 2, 0, 134), function(val) State.AutoReload = val end)
 
-CreateSectionHeader(P1, "Instant Farming Teleports", 110)
-CreateActionBtn(P1, "TP To Closest Zombie", UDim2.new(0, 2, 0, 134), function()
+CreateActionBtn(P1, "TP Above Closest", UDim2.new(0.68, 2, 0, 134), function()
 	local z = GetClosestZombie()
-	if z and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+	if z and z.Root and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
 		LocalPlayer.Character.HumanoidRootPart.CFrame = z.Root.CFrame * CFrame.new(0, State.FarmHeight, 0)
 		SafeNotify("Teleport", "Teleported above " .. z.Model.Name, 2)
 	else
-		SafeNotify("Teleport", "No zombies found on map!", 2)
+		SafeNotify("Teleport", "No zombies detected!", 2)
 	end
-end)
-
-CreateActionBtn(P1, "TP To Nearest Boss", UDim2.new(0.34, 2, 0, 134), function()
-	local z = GetClosestZombie(math.huge, true)
-	if z and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-		LocalPlayer.Character.HumanoidRootPart.CFrame = z.Root.CFrame * CFrame.new(0, State.FarmHeight + 2, 0)
-		SafeNotify("Teleport", "Teleported to Boss: " .. z.Model.Name, 2)
-	else
-		SafeNotify("Teleport", "No Boss found alive!", 2)
-	end
-end)
-
-CreateActionBtn(P1, "TP To Safe Sky Zone", UDim2.new(0.68, 2, 0, 134), function()
-	pcall(function()
-		local myChar = LocalPlayer.Character
-		if myChar and myChar:FindFirstChild("HumanoidRootPart") then
-			myChar.HumanoidRootPart.CFrame = CFrame.new(myChar.HumanoidRootPart.Position.X, 70, myChar.HumanoidRootPart.Position.Z)
-			SafeNotify("Teleport", "Moved to safe altitude", 2)
-		end
-	end)
 end)
 
 -- ==================== PAGE 2: COMBAT ====================
 local P2 = Pages[2]
-CreateSectionHeader(P2, "Aimbot & Targeting", 0)
-local AimAssistBtn = CreateToggle(P2, "Zombie Aimbot", State.AimAssist, UDim2.new(0, 2, 0, 24), function(val)
-	State.AimAssist = val
-end)
+CreateSectionHeader(P2, "Aimbot & Target Tracking", 0)
+CreateToggle(P2, "Headshot Aimbot", State.AimAssist, UDim2.new(0, 2, 0, 24), function(val) State.AimAssist = val end)
 
 local AimPartBtn = CreateActionBtn(P2, "Aim Part: Head", UDim2.new(0.34, 2, 0, 24), function(btn)
 	if State.AimPart == "Head" then
-		State.AimPart = "HumanoidRootPart"
-		btn.Text = "Aim Part: Body"
+		State.AimPart = "Torso"
+		btn.Text = "Aim Part: Torso"
 	else
 		State.AimPart = "Head"
 		btn.Text = "Aim Part: Head"
@@ -783,48 +868,47 @@ local AimPartBtn = CreateActionBtn(P2, "Aim Part: Head", UDim2.new(0.34, 2, 0, 2
 end)
 
 local AimFOVBtn = CreateActionBtn(P2, "Aimbot FOV: " .. State.AimFOV, UDim2.new(0.68, 2, 0, 24), function(btn)
-	State.AimFOV = State.AimFOV + 50
-	if State.AimFOV > 350 then State.AimFOV = 100 end
+	State.AimFOV = State.AimFOV + 40
+	if State.AimFOV > 360 then State.AimFOV = 100 end
 	btn.Text = "Aimbot FOV: " .. State.AimFOV
 end)
 
-CreateSectionHeader(P2, "Aura & Hitbox Modifiers", 66)
-local KillAuraBtn = CreateToggle(P2, "Zombie Kill Aura", State.KillAura, UDim2.new(0, 2, 0, 90), function(val)
-	State.KillAura = val
-end)
-
-local HitboxBtn = CreateToggle(P2, "Expand Hitbox", State.HitboxExpand, UDim2.new(0.34, 2, 0, 90), function(val)
+CreateSectionHeader(P2, "Hitbox Expander & Aura", 66)
+CreateToggle(P2, "Zombie Kill Aura", State.KillAura, UDim2.new(0, 2, 0, 90), function(val) State.KillAura = val end)
+CreateToggle(P2, "💀 Expand Hitbox", State.HitboxExpand, UDim2.new(0.34, 2, 0, 90), function(val)
 	State.HitboxExpand = val
+	if not val then
+		-- Revert all modified hitboxes cleanly
+		for part, originalData in pairs(ModifiedHitboxes) do
+			pcall(function()
+				if part and part.Parent then
+					part.Size = originalData.Size
+					part.Transparency = originalData.Transparency
+					part.CanCollide = originalData.CanCollide
+				end
+			end)
+		end
+		ModifiedHitboxes = {}
+	end
 end)
 
-local HitboxSizeBtn = CreateActionBtn(P2, "Hitbox Size: " .. State.HitboxSize, UDim2.new(0.68, 2, 0, 90), function(btn)
-	State.HitboxSize = State.HitboxSize + 4
-	if State.HitboxSize > 26 then State.HitboxSize = 8 end
-	btn.Text = "Hitbox Size: " .. State.HitboxSize
+local HitboxSizeBtn = CreateActionBtn(P2, "Hitbox: " .. State.HitboxSize .. " Studs", UDim2.new(0.68, 2, 0, 90), function(btn)
+	State.HitboxSize = State.HitboxSize + 5
+	if State.HitboxSize > 40 then State.HitboxSize = 10 end
+	btn.Text = "Hitbox: " .. State.HitboxSize .. " Studs"
 end)
 
-CreateToggle(P2, "Rapid Weapon Trigger", State.RapidAttack, UDim2.new(0, 2, 0, 132), function(val) State.RapidAttack = val end)
+CreateToggle(P2, "Rapid Weapon Trigger", State.RapidFire, UDim2.new(0, 2, 0, 132), function(val) State.RapidFire = val end)
 CreateToggle(P2, "Click TP (Ctrl+Click)", State.ClickTP, UDim2.new(0.34, 2, 0, 132), function(val) State.ClickTP = val end)
 
 -- ==================== PAGE 3: VISUALS ====================
 local P3 = Pages[3]
-CreateSectionHeader(P3, "Zombies & Loot ESP", 0)
-local ZombieESPBtn = CreateToggle(P3, "Zombie ESP", State.ZombieESP, UDim2.new(0, 2, 0, 24), function(val)
-	State.ZombieESP = val
-end)
+CreateSectionHeader(P3, "Zombies & World ESP", 0)
+CreateToggle(P3, "Zombie ESP", State.ZombieESP, UDim2.new(0, 2, 0, 24), function(val) State.ZombieESP = val end)
+CreateToggle(P3, "Player/Team ESP", State.PlayerESP, UDim2.new(0.34, 2, 0, 24), function(val) State.PlayerESP = val end)
+CreateToggle(P3, "Drop Loot ESP", State.LootESP, UDim2.new(0.68, 2, 0, 24), function(val) State.LootESP = val end)
 
-CreateToggle(P3, "Boss Highlight Tag", State.BossESP, UDim2.new(0.34, 2, 0, 24), function(val)
-	State.BossESP = val
-end)
-
-CreateToggle(P3, "Loot & Drop ESP", State.LootESP, UDim2.new(0.68, 2, 0, 24), function(val)
-	State.LootESP = val
-end)
-
-CreateToggle(P3, "Zombie Chams", State.Chams, UDim2.new(0, 2, 0, 66), function(val)
-	State.Chams = val
-end)
-
+CreateToggle(P3, "Zombie Chams", State.Chams, UDim2.new(0, 2, 0, 66), function(val) State.Chams = val end)
 local ChamsColorBtn = CreateActionBtn(P3, "Color: " .. ChamsColorNames[State.ChamsColorIndex], UDim2.new(0.34, 2, 0, 66), function(btn)
 	State.ChamsColorIndex = State.ChamsColorIndex + 1
 	if State.ChamsColorIndex > #ChamsColors then State.ChamsColorIndex = 1 end
@@ -832,12 +916,7 @@ local ChamsColorBtn = CreateActionBtn(P3, "Color: " .. ChamsColorNames[State.Cha
 	btn.TextColor3 = ChamsColors[State.ChamsColorIndex]
 end)
 
-CreateToggle(P3, "Players ESP", State.PlayerESP, UDim2.new(0.68, 2, 0, 66), function(val)
-	State.PlayerESP = val
-end)
-
-CreateSectionHeader(P3, "Lighting & View", 110)
-CreateToggle(P3, "FullBright", State.FullBright, UDim2.new(0, 2, 0, 134), function(val)
+CreateToggle(P3, "FullBright", State.FullBright, UDim2.new(0.68, 2, 0, 66), function(val)
 	State.FullBright = val
 	if val then
 		Lighting.Ambient = Color3.fromRGB(255, 255, 255)
@@ -854,12 +933,12 @@ CreateToggle(P3, "FullBright", State.FullBright, UDim2.new(0, 2, 0, 134), functi
 	end
 end)
 
-CreateToggle(P3, "Remove Dark Fog", State.NoFog, UDim2.new(0.34, 2, 0, 134), function(val)
+CreateToggle(P3, "Remove Dark Fog", State.NoFog, UDim2.new(0, 2, 0, 108), function(val)
 	State.NoFog = val
 	Lighting.FogEnd = val and 1e8 or OldLighting.FogEnd
 end)
 
-local FOVBtn = CreateActionBtn(P3, "Camera FOV: " .. State.FOV, UDim2.new(0.68, 2, 0, 134), function(btn)
+local FOVBtn = CreateActionBtn(P3, "Camera FOV: " .. State.FOV, UDim2.new(0.34, 2, 0, 108), function(btn)
 	State.FOV = State.FOV + 10
 	if State.FOV > 125 then State.FOV = 70 end
 	Camera.FieldOfView = State.FOV
@@ -869,7 +948,7 @@ end)
 -- ==================== PAGE 4: MOVEMENT ====================
 local P4 = Pages[4]
 CreateSectionHeader(P4, "Speed & Flight", 0)
-local SpeedBtn = CreateToggle(P4, "Speed Hack", State.Speed, UDim2.new(0, 2, 0, 24), function(val)
+CreateToggle(P4, "Speed Hack", State.Speed, UDim2.new(0, 2, 0, 24), function(val)
 	State.Speed = val
 	if not val and LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
 		LocalPlayer.Character.Humanoid.WalkSpeed = 16
@@ -882,35 +961,30 @@ local SpeedValBtn = CreateActionBtn(P4, "Speed: x" .. State.SpeedMult, UDim2.new
 	btn.Text = "Speed: x" .. State.SpeedMult
 end)
 
-local FlyBtn = CreateToggle(P4, "Fly Mode (WASD)", State.Fly, UDim2.new(0.68, 2, 0, 24), function(val)
-	State.Fly = val
-end)
+CreateToggle(P4, "Fly Mode (WASD)", State.Fly, UDim2.new(0.68, 2, 0, 24), function(val) State.Fly = val end)
+CreateToggle(P4, "Stepped Noclip", State.Noclip, UDim2.new(0, 2, 0, 66), function(val) State.Noclip = val end)
 
-local NoclipBtn = CreateToggle(P4, "Stepped Noclip", State.Noclip, UDim2.new(0, 2, 0, 66), function(val)
-	State.Noclip = val
-end)
-
-local SafePlatBtn = CreateToggle(P4, "Safe Sky Platform", State.SafePlatform, UDim2.new(0.34, 2, 0, 66), function(val)
+CreateToggle(P4, "Safe Sky Platform", State.SafePlatform, UDim2.new(0.34, 2, 0, 66), function(val)
 	State.SafePlatform = val
 	if val then
 		local char = LocalPlayer.Character
 		if char and char:FindFirstChild("HumanoidRootPart") then
-			if not SafePart then
-				SafePart = Instance.new("Part")
-				SafePart.Name = "SafeSkyPlatform"
-				SafePart.Size = Vector3.new(30, 2, 30)
-				SafePart.Anchored = true
-				SafePart.Material = Enum.Material.Neon
-				SafePart.Color = Color3.fromRGB(57, 255, 20)
-				SafePart.Transparency = 0.5
-				SafePart.Parent = workspace
+			if not SafePlatformPart then
+				SafePlatformPart = Instance.new("Part")
+				SafePlatformPart.Name = "SafeSkyPlatform"
+				SafePlatformPart.Size = Vector3.new(35, 2, 35)
+				SafePlatformPart.Anchored = true
+				SafePlatformPart.Material = Enum.Material.Neon
+				SafePlatformPart.Color = Color3.fromRGB(57, 255, 20)
+				SafePlatformPart.Transparency = 0.5
+				SafePlatformPart.Parent = workspace
 			end
-			SafePart.CFrame = CFrame.new(char.HumanoidRootPart.Position.X, char.HumanoidRootPart.Position.Y + 25, char.HumanoidRootPart.Position.Z)
-			char.HumanoidRootPart.CFrame = SafePart.CFrame * CFrame.new(0, 4, 0)
-			SafeNotify("Safe Platform", "Created safe elevated shooting platform!", 2)
+			SafePlatformPart.CFrame = CFrame.new(char.HumanoidRootPart.Position.X, char.HumanoidRootPart.Position.Y + 22, char.HumanoidRootPart.Position.Z)
+			char.HumanoidRootPart.CFrame = SafePlatformPart.CFrame * CFrame.new(0, 4, 0)
+			SafeNotify("Safe Platform", "Elevated platform created!", 2)
 		end
 	else
-		if SafePart then SafePart:Destroy() SafePart = nil end
+		if SafePlatformPart then SafePlatformPart:Destroy() SafePlatformPart = nil end
 	end
 end)
 
@@ -919,41 +993,54 @@ CreateToggle(P4, "Low Gravity", State.LowGravity, UDim2.new(0.68, 2, 0, 66), fun
 	workspace.Gravity = val and 60 or 196.2
 end)
 
--- ==================== PAGE 5: ANTI-BAN SHIELD ====================
+-- ==================== PAGE 5: DIAGNOSTIC & DEBUG ====================
 local P5 = Pages[5]
-CreateSectionHeader(P5, "Active Protection Status", 0)
+CreateSectionHeader(P5, "Game Environment Inspector", 0)
 
-local ShieldHeader = Instance.new("TextLabel")
-ShieldHeader.Parent = P5
-ShieldHeader.Size = UDim2.new(1, -10, 0, 60)
-ShieldHeader.Position = UDim2.new(0, 5, 0, 24)
-ShieldHeader.BackgroundColor3 = Color3.fromRGB(20, 30, 25)
-ShieldHeader.BorderSizePixel = 0
-ShieldHeader.Font = Enum.Font.GothamMedium
-ShieldHeader.Text = "🛡️ <font color='#00FFCC'><b>ANTI-BAN SHIELD v2.0 ACTIVE</b></font>\n• Hookmetamethod Anti-Kick: <font color='#39FF14'>PROTECTED</font>\n• WalkSpeed & JumpPower Spoof: <font color='#39FF14'>ACTIVE (Spoofed to 16/50)</font>\n• Anti-Cheat Remote Blocker: <font color='#39FF14'>RUNNING</font>"
-ShieldHeader.RichText = true
-ShieldHeader.TextColor3 = Color3.fromRGB(220, 255, 230)
-ShieldHeader.TextSize = 11.5
-local ShieldCorner = Instance.new("UICorner")
-ShieldCorner.CornerRadius = UDim.new(0, 8)
-ShieldCorner.Parent = ShieldHeader
+local DiagText = Instance.new("TextLabel")
+DiagText.Parent = P5
+DiagText.Size = UDim2.new(1, -10, 0, 140)
+DiagText.Position = UDim2.new(0, 5, 0, 24)
+DiagText.BackgroundColor3 = Color3.fromRGB(20, 28, 20)
+DiagText.BorderSizePixel = 0
+DiagText.Font = Enum.Font.Code
+DiagText.Text = "Click [Run Deep Scan] to inspect found mobs, tools, and remotes..."
+DiagText.TextColor3 = Color3.fromRGB(180, 255, 180)
+DiagText.TextSize = 11
+DiagText.TextXAlignment = Enum.TextXAlignment.Left
+DiagText.TextYAlignment = Enum.TextYAlignment.Top
+local DiagCorner = Instance.new("UICorner")
+DiagCorner.CornerRadius = UDim.new(0, 8)
+DiagCorner.Parent = DiagText
 
-CreateSectionHeader(P5, "Security Controls", 95)
-CreateToggle(P5, "Anti-Ban Shield", State.AntiBanShield, UDim2.new(0, 2, 0, 119), function(val)
-	ShieldStatus.Enabled = val
-	SafeNotify("Anti-Ban Shield", val and "Shield Enabled (Safe Mode)" or "Shield Disabled (Risk)", 2)
-end)
+CreateActionBtn(P5, "🔍 Run Deep Scan", UDim2.new(0, 2, 0, 172), function()
+	local zombies = ScanAllZombies()
+	local tools = {}
+	if LocalPlayer.Character then
+		for _, v in ipairs(LocalPlayer.Character:GetChildren()) do if v:IsA("Tool") then table.insert(tools, v.Name) end end
+	end
+	for _, v in ipairs(LocalPlayer.Backpack:GetChildren()) do if v:IsA("Tool") then table.insert(tools, v.Name) end end
 
-CreateToggle(P5, "Humanized Delay (Jitter)", State.HumanizedJitter, UDim2.new(0.34, 2, 0, 119), function(val)
-	State.HumanizedJitter = val
-end)
+	local mobNames = {}
+	for i = 1, math.min(#zombies, 5) do
+		table.insert(mobNames, zombies[i].Model.Name .. " (" .. zombies[i].Model.Parent.Name .. ")")
+	end
 
-CreateActionBtn(P5, "Clear Telemetry Logs", UDim2.new(0.68, 2, 0, 119), function()
-	pcall(function()
-		local LogService = game:GetService("LogService")
-		if LogService and LogService.ClearOutput then LogService:ClearOutput() end
-		SafeNotify("Shield", "Cleared client error & telemetry logs!", 2)
-	end)
+	DiagText.Text = string.format(
+		"=== SCAN REPORT ===\n" ..
+		"• Total Alive Mobs Found: %d\n" ..
+		"• Sample Mobs: %s\n" ..
+		"• Equipped/Backpack Tools: %s\n" ..
+		"• Combat Remotes Found: %d\n" ..
+		"• Anti-Ban Shield: ACTIVE\n" ..
+		"• LocalPlayer Pos: %s",
+		#zombies,
+		#mobNames > 0 and table.concat(mobNames, ", ") or "None",
+		#tools > 0 and table.concat(tools, ", ") or "None (Viewmodel / Script Gun)",
+		#FoundCombatRemotes,
+		tostring(LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character.HumanoidRootPart.Position or "N/A")
+	)
+	SafeNotify("Scan Complete", "Found " .. #zombies .. " mobs on map!", 3)
 end)
 
 -- ==================== PAGE 6: UTILITY ====================
@@ -975,7 +1062,7 @@ CreateToggle(P6, "FPS Booster (Lag)", State.LagReduce, UDim2.new(0.68, 2, 0, 24)
 				if v:IsA("MeshPart") then v.RenderFidelity = Enum.RenderFidelity.Performance end
 			end
 		end)
-		SafeNotify("Performance", "Zombie particles & blood effects cleared!", 2)
+		SafeNotify("Performance", "Particles & Blood effects disabled!", 2)
 	end
 end)
 
@@ -1038,7 +1125,7 @@ CreateActionBtn(P6, "Force Respawn", UDim2.new(0.34, 2, 0, 156), function()
 end)
 
 --------------------------------------------------------------
--- 9. CORE ENGINE & BACKGROUND LOOPS
+-- 10. BACKGROUND ENGINES & PHYSICS CONTROLLERS
 --------------------------------------------------------------
 
 -- Anti-AFK
@@ -1061,7 +1148,7 @@ Mouse.Button1Down:Connect(function()
 	end
 end)
 
--- ==================== AUTO FARM LOOP ====================
+-- ==================== AUTO FARM & ANTI-FLING MOB VACUUM ENGINE ====================
 task.spawn(function()
 	while not IsClosed do
 		if State.AutoFarm then
@@ -1069,37 +1156,59 @@ task.spawn(function()
 				local myChar = LocalPlayer.Character
 				local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
 				if myHrp then
+					-- BodyVelocity Stabilizer to completely prevent falling / rubberbanding
+					if not FarmBV or FarmBV.Parent ~= myHrp then
+						if FarmBV then FarmBV:Destroy() end
+						FarmBV = Instance.new("BodyVelocity")
+						FarmBV.MaxForce = Vector3.new(9e5, 9e5, 9e5)
+						FarmBV.Velocity = Vector3.zero
+						FarmBV.Parent = myHrp
+					end
+
 					local target = GetClosestZombie(math.huge, State.TargetBossOnly)
-					if target and target.Root and target.Humanoid.Health > 0 then
+					if target and target.Root and target.Root.Parent then
 						local targetPos
 						if State.FarmMode == "Above" then
 							targetPos = target.Root.CFrame * CFrame.new(0, State.FarmHeight, 0)
 						elseif State.FarmMode == "Behind" then
 							targetPos = target.Root.CFrame * CFrame.new(0, 1, 6)
+						elseif State.FarmMode == "Under" then
+							targetPos = target.Root.CFrame * CFrame.new(0, -State.FarmHeight, 0)
 						else
 							targetPos = target.Root.CFrame * CFrame.new(0, 2, 14)
 						end
 
+						-- Position character smoothly
 						myHrp.CFrame = targetPos
-						myHrp.Velocity = Vector3.zero
+						myHrp.AssemblyLinearVelocity = Vector3.zero
 
-						Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, target.Root.Position)
-
-						if State.AutoAttack then
-							AttackEquipped()
-							if State.HumanizedJitter then
-								task.wait(math.random(15, 35) / 1000)
+						-- Anti-Fling Bring Mobs / Vacuum Mode
+						if State.BringMobs then
+							for _, z in ipairs(GetZombies()) do
+								if z.Root and z.Root.Parent then
+									z.Root.CanCollide = false
+									z.Root.CFrame = myHrp.CFrame * CFrame.new(0, -2, -6)
+									z.Root.AssemblyLinearVelocity = Vector3.zero
+								end
 							end
 						end
+
+						-- Trigger Attack & Skills
+						if State.AutoAttack then
+							TriggerAutoAttack(target)
+						end
+						TriggerSkillsAndReload()
 					end
 				end
 			end)
+		else
+			if FarmBV then FarmBV:Destroy() FarmBV = nil end
 		end
-		task.wait(0.04)
+		task.wait(State.AttackInterval)
 	end
 end)
 
--- ==================== AUTO LOOT COLLECTOR ====================
+-- ==================== TARGETED AUTO DROP COLLECTOR ====================
 task.spawn(function()
 	while not IsClosed do
 		if State.AutoLoot then
@@ -1108,18 +1217,43 @@ task.spawn(function()
 				local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
 				if myHrp then
 					local myPos = myHrp.Position
+					local lootCandidates = {}
+
+					-- Check specialized drop containers first
+					for _, cName in ipairs({"Drops", "Loot", "Pickups", "Items", "Debris", "Rewards"}) do
+						local c = workspace:FindFirstChild(cName)
+						if c then
+							for _, obj in ipairs(c:GetDescendants()) do
+								if obj:IsA("BasePart") then table.insert(lootCandidates, obj) end
+							end
+						end
+					end
+
+					-- Check workspace direct children
 					for _, obj in ipairs(workspace:GetChildren()) do
-						if obj:IsA("BasePart") or obj:IsA("Model") then
-							local name = obj.Name:lower()
-							if name:find("coin") or name:find("drop") or name:find("loot") or name:find("crate") or name:find("ammo") or name:find("medkit") or name:find("cash") then
-								local part = obj:IsA("BasePart") and obj or obj:FindFirstChildWhichIsA("BasePart")
-								if part then
-									local dist = (part.Position - myPos).Magnitude
-									if dist <= State.LootRadius then
-										firetouchinterest(myHrp, part, 0)
-										task.wait()
-										firetouchinterest(myHrp, part, 1)
+						if obj:IsA("BasePart") then
+							table.insert(lootCandidates, obj)
+						elseif obj:IsA("Model") and not obj:FindFirstChildOfClass("Humanoid") then
+							local p = obj:FindFirstChildWhichIsA("BasePart")
+							if p then table.insert(lootCandidates, p) end
+						end
+					end
+
+					for _, part in ipairs(lootCandidates) do
+						if part and part.Parent then
+							local name = (part.Name .. " " .. (part.Parent and part.Parent.Name or "")):lower()
+							if name:find("coin") or name:find("drop") or name:find("loot") or name:find("crate") or name:find("ammo") or name:find("medkit") or name:find("cash") or name:find("pickup") or name:find("reward") then
+								local dist = (part.Position - myPos).Magnitude
+								if dist <= State.LootRadius then
+									local prompt = part:FindFirstChildOfClass("ProximityPrompt") or (part.Parent and part.Parent:FindFirstChildOfClass("ProximityPrompt"))
+									if prompt and fireproximityprompt then
+										fireproximityprompt(prompt)
 									end
+									part.CFrame = myHrp.CFrame
+									part.CanCollide = false
+									firetouchinterest(myHrp, part, 0)
+									task.wait()
+									firetouchinterest(myHrp, part, 1)
 								end
 							end
 						end
@@ -1127,11 +1261,11 @@ task.spawn(function()
 				end
 			end)
 		end
-		task.wait(0.3)
+		task.wait(0.25)
 	end
 end)
 
--- ==================== KILL AURA & RAPID ATTACK ====================
+-- ==================== KILL AURA ENGINE ====================
 task.spawn(function()
 	while not IsClosed do
 		if State.KillAura then
@@ -1141,20 +1275,51 @@ task.spawn(function()
 				if myHrp then
 					local myPos = myHrp.Position
 					for _, z in ipairs(GetZombies()) do
-						local dist = (z.Root.Position - myPos).Magnitude
-						if dist <= State.KillAuraDist then
-							AttackEquipped()
-							break
+						if z.Root and z.Root.Parent then
+							local dist = (z.Root.Position - myPos).Magnitude
+							if dist <= State.KillAuraDist then
+								TriggerAutoAttack(z)
+								TriggerSkillsAndReload()
+								break
+							end
 						end
 					end
 				end
 			end)
 		end
-		task.wait(State.RapidAttack and 0.05 or 0.15)
+		task.wait(State.RapidFire and 0.03 or 0.15)
 	end
 end)
 
--- ==================== RENDER STEPPED (AIMBOT & ESP & HUD) ====================
+-- ==================== NAN-SAFE AIMBOT & CAMERA TRACKING ====================
+RunService:BindToRenderStep("MeeHubAimbot_HZ", Enum.RenderPriority.Camera.Value + 1, function()
+	if IsClosed then return end
+
+	-- Aimbot Manual Lock
+	if State.AimAssist and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+		local target = GetClosestZombieToMouse(State.AimFOV)
+		if target and target.Model then
+			local aimPart = target.Model:FindFirstChild(State.AimPart) or target.Root
+			if aimPart and (aimPart.Position - Camera.CFrame.Position).Magnitude > 0.5 then
+				local targetCFrame = CFrame.lookAt(Camera.CFrame.Position, aimPart.Position)
+				Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, State.AimSmoothness)
+			end
+		end
+	end
+
+	-- Auto Farm Camera Tracking
+	if State.AutoFarm then
+		local target = GetClosestZombie(math.huge, State.TargetBossOnly)
+		if target and target.Root and target.Root.Parent then
+			local aimPart = target.Model:FindFirstChild("Head") or target.Root
+			if aimPart and (aimPart.Position - Camera.CFrame.Position).Magnitude > 0.5 then
+				Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, aimPart.Position)
+			end
+		end
+	end
+end)
+
+-- ==================== RENDER STEPPED (MULTI-ESP & HUD) ====================
 local frameCount = 0
 local lastFpsTime = tick()
 local currentFps = 60
@@ -1162,6 +1327,7 @@ local currentFps = 60
 Connections.RenderStepped = RunService.RenderStepped:Connect(function()
 	if IsClosed then return end
 
+	-- FPS & Mob counter
 	frameCount = frameCount + 1
 	if tick() - lastFpsTime >= 0.5 then
 		currentFps = math.floor(frameCount / (tick() - lastFpsTime))
@@ -1170,24 +1336,27 @@ Connections.RenderStepped = RunService.RenderStepped:Connect(function()
 		if State.FPSDisplay then
 			local ping = 0
 			pcall(function() ping = math.floor(LocalPlayer:GetNetworkPing() * 1000) end)
-			local totalMobs = #GetZombies()
-			HudLabel.Text = string.format("FPS: %d | Ping: %dms | 🛡️ Safe", currentFps, ping)
+			local totalMobs = #CachedZombies
+			HudLabel.Text = string.format("FPS: %d | Ping: %dms | ☣️ Mobs: %d", currentFps, ping, totalMobs)
 		end
 	end
 
-	-- Aimbot Lock
-	if State.AimAssist and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
-		local target = GetClosestZombieToMouse(State.AimFOV)
-		if target and target.Model then
-			local aimPart = target.Model:FindFirstChild(State.AimPart) or target.Root
-			if aimPart then
-				local targetCFrame = CFrame.lookAt(Camera.CFrame.Position, aimPart.Position)
-				Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, 0.4)
-			end
+	-- Garbage Collect Destroyed Models from ESP Stores
+	for model, store in pairs(ZombieESPStore) do
+		if not model or not model.Parent then
+			if store.Billboard then pcall(function() store.Billboard:Destroy() end) end
+			if store.Highlight then pcall(function() store.Highlight:Destroy() end) end
+			ZombieESPStore[model] = nil
+		end
+	end
+	for player, store in pairs(PlayerESPStore) do
+		if not player or not player.Parent or not player.Character or not player.Character.Parent then
+			if store.Billboard then pcall(function() store.Billboard:Destroy() end) end
+			PlayerESPStore[player] = nil
 		end
 	end
 
-	-- Zombie ESP & Chams
+	-- Zombie ESP & Chams Rendering
 	if State.ZombieESP or State.Chams then
 		local myChar = LocalPlayer.Character
 		local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
@@ -1196,81 +1365,117 @@ Connections.RenderStepped = RunService.RenderStepped:Connect(function()
 		for _, z in ipairs(GetZombies()) do
 			local model = z.Model
 			local root = z.Root
-			local hum = z.Humanoid
 
-			if not ZombieESPStore[model] then
-				local bb = Instance.new("BillboardGui")
-				bb.Name = "HZ_ESP_BB"
-				bb.Adornee = root
-				bb.AlwaysOnTop = true
-				bb.Size = UDim2.new(0, 110, 0, 36)
-				bb.StudsOffset = Vector3.new(0, 2.5, 0)
-				bb.Enabled = State.ZombieESP
+			if root and root.Parent then
+				if not ZombieESPStore[model] then
+					local bb = Instance.new("BillboardGui")
+					bb.Name = "HZ_ESP_BB"
+					bb.Adornee = root
+					bb.AlwaysOnTop = true
+					bb.Size = UDim2.new(0, 120, 0, 36)
+					bb.StudsOffset = Vector3.new(0, 2.8, 0)
+					bb.Enabled = State.ZombieESP
 
-				local nameLabel = Instance.new("TextLabel")
-				nameLabel.Name = "NameLabel"
-				nameLabel.Parent = bb
-				nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
-				nameLabel.BackgroundTransparency = 1
-				nameLabel.Font = Enum.Font.GothamBold
-				nameLabel.Text = z.IsBoss and ("👑 " .. model.Name) or model.Name
-				nameLabel.TextColor3 = z.IsBoss and Color3.fromRGB(255, 215, 0) or Color3.fromRGB(57, 255, 20)
-				nameLabel.TextSize = 11
-				nameLabel.TextStrokeTransparency = 0.2
+					local nameLabel = Instance.new("TextLabel")
+					nameLabel.Name = "NameLabel"
+					nameLabel.Parent = bb
+					nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
+					nameLabel.BackgroundTransparency = 1
+					nameLabel.Font = Enum.Font.GothamBold
+					nameLabel.Text = z.IsBoss and ("👑 " .. model.Name) or model.Name
+					nameLabel.TextColor3 = z.IsBoss and Color3.fromRGB(255, 215, 0) or Color3.fromRGB(57, 255, 20)
+					nameLabel.TextSize = 11
+					nameLabel.TextStrokeTransparency = 0.2
 
-				local hpLabel = Instance.new("TextLabel")
-				hpLabel.Name = "HPLabel"
-				hpLabel.Parent = bb
-				hpLabel.Size = UDim2.new(1, 0, 0.5, 0)
-				hpLabel.Position = UDim2.new(0, 0, 0.5, 0)
-				hpLabel.BackgroundTransparency = 1
-				hpLabel.Font = Enum.Font.GothamMedium
-				hpLabel.Text = "HP: " .. math.floor(hum.Health)
-				hpLabel.TextColor3 = Color3.fromRGB(240, 240, 240)
-				hpLabel.TextSize = 10
-				hpLabel.TextStrokeTransparency = 0.2
+					local hpLabel = Instance.new("TextLabel")
+					hpLabel.Name = "HPLabel"
+					hpLabel.Parent = bb
+					hpLabel.Size = UDim2.new(1, 0, 0.5, 0)
+					hpLabel.Position = UDim2.new(0, 0, 0.5, 0)
+					hpLabel.BackgroundTransparency = 1
+					hpLabel.Font = Enum.Font.GothamMedium
+					hpLabel.Text = "HP: " .. math.floor(z.CurrentHP)
+					hpLabel.TextColor3 = Color3.fromRGB(240, 240, 240)
+					hpLabel.TextSize = 10
+					hpLabel.TextStrokeTransparency = 0.2
 
-				pcall(function()
-					local targetGui = (gethui and gethui()) or game:GetService("CoreGui")
-					bb.Parent = targetGui
-				end)
+					pcall(function()
+						local targetGui = (gethui and gethui()) or game:GetService("CoreGui")
+						bb.Parent = targetGui
+					end)
 
-				local hl = Instance.new("Highlight")
-				hl.Name = "HZ_ESP_HL"
-				hl.Adornee = model
-				hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-				hl.FillColor = z.IsBoss and Color3.fromRGB(255, 50, 50) or ChamsColors[State.ChamsColorIndex]
-				hl.FillTransparency = 0.5
-				hl.OutlineColor = z.IsBoss and Color3.fromRGB(255, 215, 0) or ChamsColors[State.ChamsColorIndex]
-				hl.OutlineTransparency = 0
-				hl.Enabled = State.Chams
-				hl.Parent = model
+					local hl = Instance.new("Highlight")
+					hl.Name = "HZ_ESP_HL"
+					hl.Adornee = model
+					hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+					hl.FillColor = z.IsBoss and Color3.fromRGB(255, 50, 50) or ChamsColors[State.ChamsColorIndex]
+					hl.FillTransparency = 0.5
+					hl.OutlineColor = z.IsBoss and Color3.fromRGB(255, 215, 0) or ChamsColors[State.ChamsColorIndex]
+					hl.OutlineTransparency = 0
+					hl.Enabled = State.Chams
+					hl.Parent = model
 
-				ZombieESPStore[model] = {Billboard = bb, Highlight = hl, HPLabel = hpLabel}
-			else
-				local store = ZombieESPStore[model]
-				if store.Billboard then
-					store.Billboard.Enabled = State.ZombieESP
-					if store.HPLabel and myPos then
-						local dist = math.floor((root.Position - myPos).Magnitude * 0.28)
-						store.HPLabel.Text = dist .. "m | HP: " .. math.floor(hum.Health)
+					ZombieESPStore[model] = {Billboard = bb, Highlight = hl, HPLabel = hpLabel}
+				else
+					local store = ZombieESPStore[model]
+					if store.Billboard then
+						store.Billboard.Enabled = State.ZombieESP
+						if store.HPLabel and myPos and root then
+							local dist = math.floor((root.Position - myPos).Magnitude * 0.28)
+							store.HPLabel.Text = dist .. "m | HP: " .. math.floor(z.CurrentHP)
+						end
+					end
+					if store.Highlight then
+						store.Highlight.Enabled = State.Chams
+						store.Highlight.FillColor = z.IsBoss and Color3.fromRGB(255, 50, 50) or ChamsColors[State.ChamsColorIndex]
 					end
 				end
-				if store.Highlight then
-					store.Highlight.Enabled = State.Chams
-					store.Highlight.FillColor = z.IsBoss and Color3.fromRGB(255, 50, 50) or ChamsColors[State.ChamsColorIndex]
+			end
+		end
+	end
+
+	-- Player/Teammate ESP Rendering
+	if State.PlayerESP then
+		for _, plr in ipairs(Players:GetPlayers()) do
+			if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+				local char = plr.Character
+				local hrp = char.HumanoidRootPart
+				if not PlayerESPStore[plr] then
+					local bb = Instance.new("BillboardGui")
+					bb.Name = "HZ_PLR_ESP"
+					bb.Adornee = hrp
+					bb.AlwaysOnTop = true
+					bb.Size = UDim2.new(0, 110, 0, 24)
+					bb.StudsOffset = Vector3.new(0, 3, 0)
+
+					local lbl = Instance.new("TextLabel")
+					lbl.Parent = bb
+					lbl.Size = UDim2.new(1, 0, 1, 0)
+					lbl.BackgroundTransparency = 1
+					lbl.Font = Enum.Font.GothamBold
+					lbl.Text = "👤 " .. plr.DisplayName
+					lbl.TextColor3 = Color3.fromRGB(0, 230, 255)
+					lbl.TextSize = 11
+					lbl.TextStrokeTransparency = 0.2
+
+					pcall(function()
+						local targetGui = (gethui and gethui()) or game:GetService("CoreGui")
+						bb.Parent = targetGui
+					end)
+					PlayerESPStore[plr] = {Billboard = bb, Label = lbl}
 				end
 			end
 		end
 	end
 end)
 
--- ==================== PHYSICS & MOVEMENT LOOPS ====================
+-- ==================== PHYSICS & MOVEMENT CONTROLLERS ====================
 Connections.Stepped = RunService.Stepped:Connect(function()
 	if IsClosed then return end
 	local char = LocalPlayer.Character
 	if not char then return end
 
+	-- Stepped Noclip
 	if State.Noclip then
 		for _, part in ipairs(char:GetDescendants()) do
 			if part:IsA("BasePart") and part.CanCollide then
@@ -1287,18 +1492,47 @@ Connections.Heartbeat = RunService.Heartbeat:Connect(function()
 	local hum = char:FindFirstChildOfClass("Humanoid")
 	local hrp = char:FindFirstChild("HumanoidRootPart")
 
+	-- Anti-Void Protection
+	if State.AntiVoid and hrp and hrp.Position.Y < -50 then
+		hrp.AssemblyLinearVelocity = Vector3.zero
+		hrp.CFrame = CFrame.new(hrp.Position.X, 15, hrp.Position.Z)
+		SafeNotify("Anti-Void", "Prevented falling into the void!", 2)
+	end
+
+	-- Speed
 	if State.Speed and hum and hrp then
 		if hum.MoveDirection.Magnitude > 0 then
 			hrp.CFrame = hrp.CFrame + (hum.MoveDirection * (State.SpeedMult * 0.35))
 		end
 	end
 
+	-- Hitbox Expander with Original Property Retention
 	if State.HitboxExpand then
 		for _, z in ipairs(GetZombies()) do
-			if z.Root then
-				z.Root.Size = Vector3.new(State.HitboxSize, State.HitboxSize, State.HitboxSize)
-				z.Root.Transparency = 0.7
-				z.Root.CanCollide = false
+			if z.Model and z.Model.Parent then
+				local head = z.Model:FindFirstChild("Head")
+				if head and head:IsA("BasePart") and not ModifiedHitboxes[head] then
+					ModifiedHitboxes[head] = {
+						Size = head.Size,
+						Transparency = head.Transparency,
+						CanCollide = head.CanCollide
+					}
+					head.Size = Vector3.new(State.HitboxSize, State.HitboxSize, State.HitboxSize)
+					head.Transparency = 0.65
+					head.CanCollide = false
+					head.Massless = true
+				end
+				if z.Root and z.Root:IsA("BasePart") and z.Root ~= head and not ModifiedHitboxes[z.Root] then
+					ModifiedHitboxes[z.Root] = {
+						Size = z.Root.Size,
+						Transparency = z.Root.Transparency,
+						CanCollide = z.Root.CanCollide
+					}
+					z.Root.Size = Vector3.new(State.HitboxSize, State.HitboxSize, State.HitboxSize)
+					z.Root.Transparency = 0.75
+					z.Root.CanCollide = false
+					z.Root.Massless = true
+				end
 			end
 		end
 	end
@@ -1346,7 +1580,7 @@ task.spawn(function()
 	end
 end)
 
--- ==================== RAINBOW BORDER ACCENT ====================
+-- Rainbow Accent
 task.spawn(function()
 	local hue = 0.3
 	while not IsClosed do
@@ -1357,7 +1591,7 @@ task.spawn(function()
 end)
 
 --------------------------------------------------------------
--- 10. HOTKEYS & WINDOW MANAGEMENT
+-- 11. HOTKEYS & WINDOW MANAGEMENT
 --------------------------------------------------------------
 local function ToggleGui()
 	GuiVisible = not GuiVisible
@@ -1368,7 +1602,7 @@ MinBtn.MouseButton1Click:Connect(function()
 	ContentArea.Visible = not ContentArea.Visible
 	TabBar.Visible = ContentArea.Visible
 	StatusBar.Visible = ContentArea.Visible
-	MainFrame.Size = ContentArea.Visible and UDim2.new(0, 620, 0, 425) or UDim2.new(0, 620, 0, 42)
+	MainFrame.Size = ContentArea.Visible and UDim2.new(0, 640, 0, 435) or UDim2.new(0, 640, 0, 42)
 end)
 
 CloseBtn.MouseButton1Click:Connect(function()
@@ -1378,7 +1612,21 @@ CloseBtn.MouseButton1Click:Connect(function()
 		if store.Billboard then pcall(function() store.Billboard:Destroy() end) end
 		if store.Highlight then pcall(function() store.Highlight:Destroy() end) end
 	end
-	if SafePart then SafePart:Destroy() end
+	for _, store in pairs(PlayerESPStore) do
+		if store.Billboard then pcall(function() store.Billboard:Destroy() end) end
+	end
+	for part, originalData in pairs(ModifiedHitboxes) do
+		pcall(function()
+			if part and part.Parent then
+				part.Size = originalData.Size
+				part.Transparency = originalData.Transparency
+				part.CanCollide = originalData.CanCollide
+			end
+		end)
+	end
+
+	if SafePlatformPart then SafePlatformPart:Destroy() end
+	if FarmBV then FarmBV:Destroy() end
 	if FlyBV then FlyBV:Destroy() end
 	if FlyBG then FlyBG:Destroy() end
 
@@ -1390,11 +1638,12 @@ CloseBtn.MouseButton1Click:Connect(function()
 	workspace.Gravity = 196.2
 	Camera.FieldOfView = 70
 
+	pcall(function() RunService:UnbindFromRenderStep("MeeHubAimbot_HZ") end)
 	for _, conn in pairs(Connections) do pcall(function() conn:Disconnect() end) end
 
 	ScreenGui:Destroy()
-	env["HUNTY_ZOMBIE_LOADED"] = nil
-	SafeNotify("☣️ Hunty Zombie Hub", "Script safely unloaded!", 2)
+	env["HUNTY_ZOMBIES_V5_LOADED"] = nil
+	SafeNotify("☣️ Hunty Zombies", "Script unloaded cleanly!", 2)
 end)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
@@ -1421,5 +1670,15 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 end)
 
-SafeNotify("☣️ Hunty Zombie Hub v2.0", "Loaded with [🛡️ ANTI-BAN SHIELD]!\nPress [F1] or [RightCtrl] for GUI", 5)
-print("[Hunty Zombie Hub] Initialized successfully with Anti-Ban Shield.")
+LocalPlayer.CharacterAdded:Connect(function(char)
+	task.wait(0.5)
+	if FarmBV then FarmBV:Destroy() FarmBV = nil end
+	if State.Speed and char:FindFirstChildOfClass("Humanoid") then
+		char.Humanoid.WalkSpeed = 16 * State.SpeedMult
+	end
+end)
+
+SafeNotify("☣️ Hunty Zombies Pro Suite v5.5", "Loaded successfully!\nPress [F1] or [RightCtrl] for GUI", 5)
+print("================================================================")
+print("☣️ [Hunty Zombies Pro Suite v5.5] Initialized successfully!")
+print("================================================================")
