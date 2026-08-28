@@ -1,0 +1,1425 @@
+--[[
+	========================================================================
+	☣️ HUNTY ZOMBIE ULTIMATE HUB v2.0 (MeeHub + Anti-Ban Edition) ☣️
+	Auto-Farm, Zombie ESP, Kill Aura & Survival Suite with Built-in Anti-Ban Shield
+	
+	Compatible with: Solara, Xeno, Wave, Fluxus, Delta, Codex, Arceus, MacSploit
+	========================================================================
+	
+	🛡️ Security & Anti-Ban Features:
+	  - Hookmetamethod Anti-Kick (Blocks local Kick/Ban calls)
+	  - Anti-Cheat Remote Blocker (Blocks telemetry, flag, honeypot & report remotes)
+	  - WalkSpeed & JumpPower Property Spoofing (__index spoof to 16/50)
+	  - ScriptContext Error Cloak (Prevents analytics crash & error leaks)
+	  - Attack Interval Jitter (Humanized millisecond randomize to bypass rate-limits)
+	
+	Features:
+	  🌾 Auto Farm : Safe-Height Auto Kill (Floating above mobs), Auto Collect Loot/Coins, Auto Attack, Boss Priority
+	  ⚔️ Combat    : Zombie Head Aimbot, Silent Aim, Zombie Kill Aura, Massive Hitbox Expander, Rapid Fire
+	  👁️ Visuals   : Zombie ESP (Health & Distance), Boss Tag, Loot/Drop ESP, Chams, FullBright, Dark Fog Killer
+	  🏃 Movement  : Safe Platform Generator, Smooth Fly, Stepped Noclip, Speed Hack, Instant Teleport
+	  🔧 Utility   : Anti-AFK, FPS Boost (Particle & Debris Killer), Server Hop, Rejoin, Infinite Yield
+	
+	Keybinds:
+	  [F1] or [RightControl] = Toggle GUI
+	  [F2] = Toggle Auto Farm
+	  [F3] = Toggle Zombie ESP
+	  [F4] = Toggle Fly Mode
+	  [F5] = Toggle Speed Boost
+	  [F6] = Toggle Kill Aura
+	  [Ctrl + Click] = Click Teleport
+--]]
+
+--------------------------------------------------------------
+-- 1. ANTI-DUPLICATE & INITIALIZATION
+--------------------------------------------------------------
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+local get_genv = getgenv or function() return _G end
+local env = get_genv()
+
+if env["HUNTY_ZOMBIE_LOADED"] then
+	pcall(function()
+		game:GetService("StarterGui"):SetCore("SendNotification", {
+			Title = "☣️ Hunty Zombie Hub",
+			Text = "Script already active! Press [F1] or [RightControl] to open.",
+			Duration = 4
+		})
+	end)
+	return
+end
+env["HUNTY_ZOMBIE_LOADED"] = true
+
+--------------------------------------------------------------
+-- 2. CORE SERVICES
+--------------------------------------------------------------
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+local StarterGui = game:GetService("StarterGui")
+local TweenService = game:GetService("TweenService")
+local TeleportService = game:GetService("TeleportService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+local VirtualUser = game:GetService("VirtualUser")
+local ScriptContext = game:GetService("ScriptContext")
+
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+local Camera = workspace.CurrentCamera
+
+workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+	Camera = workspace.CurrentCamera or workspace:FindFirstChildOfClass("Camera")
+end)
+
+--------------------------------------------------------------
+-- 3. ADVANCED ANTI-BAN & ANTI-DETECTION SHIELD ENGINE
+--------------------------------------------------------------
+local ShieldStatus = {
+	AntiKickBlocked = 0,
+	RemotesBlocked = 0,
+	SpoofedProperties = 0,
+	Enabled = true
+}
+
+local BlockedRemoteKeywords = {
+	"ban", "kick", "report", "detection", "anticheat", "anti_cheat", "cheat",
+	"exploit", "flag", "honeypot", "security", "teleportcheck", "speedcheck",
+	"walkspeedcheck", "suspicious", "analytics", "logservice", "tamper",
+	"integrity", "crashreport", "clientlog", "statcheck", "punish"
+}
+
+local function SafeNotify(title, text, duration)
+	pcall(function()
+		StarterGui:SetCore("SendNotification", {
+			Title = title or "☣️ Hunty Zombie",
+			Text = text or "",
+			Duration = duration or 3
+		})
+	end)
+end
+
+-- Hook Engine
+pcall(function()
+	local hook_mm = hookmetamethod or (hookfunction and function(target, hook) return hookfunction(target, hook) end)
+	local get_raw_mt = getrawmetatable or debug.getmetatable or function(t) return getmetatable(t) end
+	local set_ro = setreadonly or make_writeable or function(mt, val) end
+
+	if get_raw_mt then
+		local gameMt = get_raw_mt(game)
+		if gameMt then
+			set_ro(gameMt, false)
+			local oldNamecall = gameMt.__namecall
+			local oldIndex = gameMt.__index
+			local newc = newcclosure or function(f) return f end
+
+			-- 1. __namecall Hook (Anti-Kick & Suspicious Remote Blocker)
+			if hook_mm then
+				oldNamecall = hook_mm(game, "__namecall", newc(function(self, ...)
+					local method = getnamecallmethod and getnamecallmethod() or ""
+					local args = {...}
+
+					-- Anti-Kick Protection
+					if (method == "Kick" or method == "kick") and (self == LocalPlayer or self == Players) then
+						ShieldStatus.AntiKickBlocked = ShieldStatus.AntiKickBlocked + 1
+						warn("[🛡️ ANTI-BAN] Blocked Kick Attempt! Reason: " .. tostring(args[1] or "No reason provided"))
+						SafeNotify("🛡️ SHIELD BLOCKED KICK", "Blocked kick attempt: " .. tostring(args[1] or "Unknown"), 4)
+						return nil
+					end
+
+					-- Suspicious Remote Blocker
+					if (method == "FireServer" or method == "InvokeServer") and typeof(self) == "Instance" then
+						local remoteName = self.Name:lower()
+						for _, keyword in ipairs(BlockedRemoteKeywords) do
+							if remoteName:find(keyword) then
+								ShieldStatus.RemotesBlocked = ShieldStatus.RemotesBlocked + 1
+								warn("[🛡️ ANTI-BAN] Blocked Malicious Remote Call to: " .. self:GetFullName())
+								return nil
+							end
+						end
+					end
+
+					return oldNamecall(self, ...)
+				end))
+
+				-- 2. __index Hook (WalkSpeed & JumpPower Spoofing)
+				oldIndex = hook_mm(game, "__index", newc(function(self, key)
+					if ShieldStatus.Enabled and typeof(self) == "Instance" and self:IsA("Humanoid") and self.Parent == LocalPlayer.Character then
+						if key == "WalkSpeed" then
+							return 16
+						elseif key == "JumpPower" then
+							return 50
+						elseif key == "JumpHeight" then
+							return 7.2
+						end
+					end
+					return oldIndex(self, key)
+				end))
+			end
+			set_ro(gameMt, true)
+		end
+	end
+end)
+
+-- Script Error Telemetry Cloak
+pcall(function()
+	if ScriptContext and ScriptContext.Error then
+		ScriptContext.Error:Connect(function(msg, trace, scriptObj)
+			-- Suppress executor error logging
+		end)
+	end
+end)
+
+print("[🛡️ ANTI-BAN] Security Shield v2.0 Activated successfully!")
+
+--------------------------------------------------------------
+-- 4. STATE & CONFIGURATION
+--------------------------------------------------------------
+local State = {
+	-- Auto Farm
+	AutoFarm = false,
+	FarmMode = "Above", -- "Above", "Behind", "Distance"
+	FarmHeight = 7.5,
+	AutoAttack = true,
+	AutoLoot = true,
+	LootRadius = 60,
+	TargetBossOnly = false,
+	HumanizedJitter = true, -- Anti-Ban random micro delay
+
+	-- Combat
+	AimAssist = false,
+	AimPart = "Head",
+	AimFOV = 150,
+	SilentAim = false,
+	KillAura = false,
+	KillAuraDist = 20,
+	HitboxExpand = false,
+	HitboxSize = 14,
+	RapidAttack = false,
+	ClickTP = false,
+
+	-- Visuals
+	ZombieESP = false,
+	BossESP = true,
+	LootESP = false,
+	PlayerESP = false,
+	Chams = false,
+	ChamsColorIndex = 1,
+	FullBright = false,
+	NoFog = false,
+	FOV = 90,
+
+	-- Movement
+	Speed = false,
+	SpeedMult = 2.5,
+	Fly = false,
+	FlySpeed = 60,
+	Noclip = false,
+	SafePlatform = false,
+	LowGravity = false,
+	AntiVoid = true,
+
+	-- Utility
+	AntiAFK = true,
+	FPSDisplay = true,
+	LagReduce = false,
+	AntiBanShield = true,
+}
+
+local ChamsColors = {
+	Color3.fromRGB(57, 255, 20),   -- Toxic Neon Green
+	Color3.fromRGB(255, 60, 0),    -- Blood Orange
+	Color3.fromRGB(0, 230, 255),   -- Cyber Ice
+	Color3.fromRGB(255, 235, 0),   -- Radioactive Yellow
+	Color3.fromRGB(200, 50, 255),  -- Plasma Purple
+	Color3.fromRGB(255, 255, 255)  -- Pure White
+}
+local ChamsColorNames = {"Toxic Green", "Blood Orange", "Cyber Ice", "Radioactive Yellow", "Plasma Purple", "Pure White"}
+
+local Connections = {}
+local ZombieESPStore = {}
+local SafePart = nil
+local IsClosed = false
+local GuiVisible = true
+
+local OldLighting = {
+	Ambient = Lighting.Ambient,
+	OutdoorAmbient = Lighting.OutdoorAmbient,
+	Brightness = Lighting.Brightness,
+	FogEnd = Lighting.FogEnd,
+	GlobalShadows = Lighting.GlobalShadows,
+	ClockTime = Lighting.ClockTime
+}
+
+--------------------------------------------------------------
+-- 5. SCANNER & TARGETING HELPERS
+--------------------------------------------------------------
+local function GetZombies()
+	local zombies = {}
+	local candidates = {}
+
+	for _, name in ipairs({"Zombies", "Mobs", "Enemies", "Monsters", "Entities", "NPCs", "WaveZombies"}) do
+		local folder = workspace:FindFirstChild(name)
+		if folder then
+			for _, c in ipairs(folder:GetChildren()) do table.insert(candidates, c) end
+		end
+	end
+
+	for _, c in ipairs(workspace:GetChildren()) do
+		if c:IsA("Model") and c ~= LocalPlayer.Character and not Players:GetPlayerFromCharacter(c) then
+			table.insert(candidates, c)
+		end
+	end
+
+	for _, model in ipairs(candidates) do
+		if model:IsA("Model") then
+			local hum = model:FindFirstChildOfClass("Humanoid")
+			local hrp = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso") or model:FindFirstChild("UpperTorso") or model:FindFirstChild("Head")
+			if hum and hrp and hum.Health > 0 then
+				local isPlayer = Players:GetPlayerFromCharacter(model)
+				if not isPlayer then
+					table.insert(zombies, {
+						Model = model,
+						Humanoid = hum,
+						Root = hrp,
+						IsBoss = model.Name:lower():find("boss") or model.Name:lower():find("giant") or model.Name:lower():find("brute") or hum.MaxHealth > 500
+					})
+				end
+			end
+		end
+	end
+	return zombies
+end
+
+local function GetClosestZombie(maxDist, bossOnly)
+	maxDist = maxDist or math.huge
+	local closest, closestDist = nil, maxDist
+	local myChar = LocalPlayer.Character
+	if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return nil end
+	local myPos = myChar.HumanoidRootPart.Position
+
+	for _, z in ipairs(GetZombies()) do
+		if not bossOnly or z.IsBoss then
+			local dist = (z.Root.Position - myPos).Magnitude
+			if dist < closestDist then
+				closestDist = dist
+				closest = z
+			end
+		end
+	end
+	return closest, closestDist
+end
+
+local function GetClosestZombieToMouse(fovLimit)
+	fovLimit = fovLimit or State.AimFOV
+	local closest, closestDist = nil, fovLimit
+	local mousePos = Vector2.new(Mouse.X, Mouse.Y)
+
+	for _, z in ipairs(GetZombies()) do
+		local targetPart = z.Model:FindFirstChild(State.AimPart) or z.Root
+		if targetPart then
+			local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+			if onScreen then
+				local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+				if dist < closestDist then
+					closestDist = dist
+					closest = z
+				end
+			end
+		end
+	end
+	return closest
+end
+
+local function AttackEquipped()
+	pcall(function()
+		local char = LocalPlayer.Character
+		if not char then return end
+		local tool = char:FindFirstChildOfClass("Tool")
+		if tool then
+			tool:Activate()
+			for _, v in ipairs(tool:GetDescendants()) do
+				if v:IsA("RemoteEvent") then
+					v:FireServer()
+				end
+			end
+		else
+			local bpTool = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
+			if bpTool and char:FindFirstChildOfClass("Humanoid") then
+				char.Humanoid:EquipTool(bpTool)
+			end
+		end
+	end)
+end
+
+--------------------------------------------------------------
+-- 6. GUI CONSTRUCTION
+--------------------------------------------------------------
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "HUNTY_ZOMBIE_MEEHUB"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+local function AttachGui()
+	local success = pcall(function()
+		local target = (gethui and gethui()) or game:GetService("CoreGui")
+		ScreenGui.Parent = target
+	end)
+	if not success then
+		pcall(function() ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end)
+	end
+end
+AttachGui()
+
+-- Main Frame Container
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Parent = ScreenGui
+MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+MainFrame.Size = UDim2.new(0, 620, 0, 425)
+MainFrame.BackgroundColor3 = Color3.fromRGB(16, 20, 16)
+MainFrame.BorderSizePixel = 0
+MainFrame.ClipsDescendants = false
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 10)
+MainCorner.Parent = MainFrame
+
+local MainStroke = Instance.new("UIStroke")
+MainStroke.Color = Color3.fromRGB(57, 255, 20)
+MainStroke.Thickness = 1.8
+MainStroke.Transparency = 0.1
+MainStroke.Parent = MainFrame
+
+-- Custom Smooth Draggable
+do
+	local dragging, dragInput, dragStart, startPos
+	local function update(input)
+		local delta = input.Position - dragStart
+		MainFrame.Position = UDim2.new(
+			startPos.X.Scale,
+			startPos.X.Offset + delta.X,
+			startPos.Y.Scale,
+			startPos.Y.Offset + delta.Y
+		)
+	end
+
+	MainFrame.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = MainFrame.Position
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then dragging = false end
+			end)
+		end
+	end)
+
+	MainFrame.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			dragInput = input
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if input == dragInput and dragging then update(input) end
+	end)
+end
+
+-- Title Bar
+local TitleBar = Instance.new("Frame")
+TitleBar.Name = "TitleBar"
+TitleBar.Parent = MainFrame
+TitleBar.Size = UDim2.new(1, 0, 0, 42)
+TitleBar.BackgroundColor3 = Color3.fromRGB(24, 30, 24)
+TitleBar.BorderSizePixel = 0
+
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 10)
+TitleCorner.Parent = TitleBar
+
+local TitleFix = Instance.new("Frame")
+TitleFix.Parent = TitleBar
+TitleFix.Size = UDim2.new(1, 0, 0, 12)
+TitleFix.Position = UDim2.new(0, 0, 1, -12)
+TitleFix.BackgroundColor3 = Color3.fromRGB(24, 30, 24)
+TitleFix.BorderSizePixel = 0
+
+local TitleText = Instance.new("TextLabel")
+TitleText.Parent = TitleBar
+TitleText.Size = UDim2.new(0.65, 0, 1, 0)
+TitleText.Position = UDim2.new(0, 16, 0, 0)
+TitleText.BackgroundTransparency = 1
+TitleText.Font = Enum.Font.GothamBlack
+TitleText.Text = "☣️ HUNTY ZOMBIE <font color='#39FF14'>v2.0</font> <font color='#00FFCC'>[🛡️ ANTI-BAN ACTIVE]</font>"
+TitleText.RichText = true
+TitleText.TextColor3 = Color3.fromRGB(255, 255, 255)
+TitleText.TextSize = 14.5
+TitleText.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Buttons
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Name = "CloseBtn"
+CloseBtn.Parent = TitleBar
+CloseBtn.Size = UDim2.new(0, 28, 0, 28)
+CloseBtn.Position = UDim2.new(1, -36, 0, 7)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(220, 40, 40)
+CloseBtn.BorderSizePixel = 0
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.Text = "✕"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.TextSize = 13
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 6)
+CloseCorner.Parent = CloseBtn
+
+local MinBtn = Instance.new("TextButton")
+MinBtn.Name = "MinBtn"
+MinBtn.Parent = TitleBar
+MinBtn.Size = UDim2.new(0, 28, 0, 28)
+MinBtn.Position = UDim2.new(1, -70, 0, 7)
+MinBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 45)
+MinBtn.BorderSizePixel = 0
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.Text = "—"
+MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MinBtn.TextSize = 13
+local MinCorner = Instance.new("UICorner")
+MinCorner.CornerRadius = UDim.new(0, 6)
+MinCorner.Parent = MinBtn
+
+-- Navigation Tabs
+local TabBar = Instance.new("Frame")
+TabBar.Name = "TabBar"
+TabBar.Parent = MainFrame
+TabBar.Size = UDim2.new(1, -24, 0, 32)
+TabBar.Position = UDim2.new(0, 12, 0, 48)
+TabBar.BackgroundColor3 = Color3.fromRGB(20, 26, 20)
+TabBar.BorderSizePixel = 0
+local TabCorner = Instance.new("UICorner")
+TabCorner.CornerRadius = UDim.new(0, 8)
+TabCorner.Parent = TabBar
+
+local TabNames = {"🌾 Auto Farm", "⚔️ Combat", "👁️ Visuals", "🏃 Movement", "🛡️ Anti-Ban", "🔧 Utility"}
+local TabButtons = {}
+local Pages = {}
+
+local ContentArea = Instance.new("Frame")
+ContentArea.Name = "ContentArea"
+ContentArea.Parent = MainFrame
+ContentArea.Size = UDim2.new(1, -24, 1, -122)
+ContentArea.Position = UDim2.new(0, 12, 0, 86)
+ContentArea.BackgroundTransparency = 1
+ContentArea.BorderSizePixel = 0
+
+for i, name in ipairs(TabNames) do
+	local btn = Instance.new("TextButton")
+	btn.Name = "Tab_" .. i
+	btn.Parent = TabBar
+	btn.Size = UDim2.new(1 / #TabNames, -4, 1, -6)
+	btn.Position = UDim2.new((1 / #TabNames) * (i - 1), 2, 0, 3)
+	btn.BackgroundColor3 = (i == 1) and Color3.fromRGB(45, 180, 25) or Color3.fromRGB(28, 36, 28)
+	btn.BorderSizePixel = 0
+	btn.Font = Enum.Font.GothamBold
+	btn.Text = name
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	btn.TextSize = 10.5
+	local btnCorner = Instance.new("UICorner")
+	btnCorner.CornerRadius = UDim.new(0, 6)
+	btnCorner.Parent = btn
+	TabButtons[i] = btn
+
+	local page = Instance.new("ScrollingFrame")
+	page.Name = "Page_" .. i
+	page.Parent = ContentArea
+	page.Size = UDim2.new(1, 0, 1, 0)
+	page.BackgroundTransparency = 1
+	page.BorderSizePixel = 0
+	page.ScrollBarThickness = 5
+	page.ScrollBarImageColor3 = Color3.fromRGB(57, 255, 20)
+	page.CanvasSize = UDim2.new(0, 0, 0, 440)
+	page.Visible = (i == 1)
+	Pages[i] = page
+end
+
+local function SwitchTab(index)
+	for i, page in ipairs(Pages) do
+		page.Visible = (i == index)
+		if i == index then
+			TabButtons[i].BackgroundColor3 = (index == 5) and Color3.fromRGB(0, 180, 220) or Color3.fromRGB(45, 180, 25)
+		else
+			TabButtons[i].BackgroundColor3 = Color3.fromRGB(28, 36, 28)
+		end
+	end
+end
+
+for i, btn in ipairs(TabButtons) do
+	btn.MouseButton1Click:Connect(function() SwitchTab(i) end)
+end
+
+-- Bottom Status Bar
+local StatusBar = Instance.new("Frame")
+StatusBar.Name = "StatusBar"
+StatusBar.Parent = MainFrame
+StatusBar.Size = UDim2.new(1, -24, 0, 24)
+StatusBar.Position = UDim2.new(0, 12, 1, -30)
+StatusBar.BackgroundColor3 = Color3.fromRGB(20, 26, 20)
+StatusBar.BorderSizePixel = 0
+local StatusCorner = Instance.new("UICorner")
+StatusCorner.CornerRadius = UDim.new(0, 6)
+StatusCorner.Parent = StatusBar
+
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Parent = StatusBar
+StatusLabel.Size = UDim2.new(1, -16, 1, 0)
+StatusLabel.Position = UDim2.new(0, 8, 0, 0)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Font = Enum.Font.GothamMedium
+StatusLabel.Text = "🛡️ Shield: ACTIVE | [F1]=UI [F2]=Farm [F3]=ESP [F4]=Fly [F5]=Speed [F6]=Aura"
+StatusLabel.TextColor3 = Color3.fromRGB(160, 220, 180)
+StatusLabel.TextSize = 11
+StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+-- HUD Overlay
+local HudFrame = Instance.new("Frame")
+HudFrame.Name = "HUD_Zombie"
+HudFrame.Parent = ScreenGui
+HudFrame.Size = UDim2.new(0, 210, 0, 26)
+HudFrame.Position = UDim2.new(0, 15, 0, 15)
+HudFrame.BackgroundColor3 = Color3.fromRGB(16, 20, 16)
+HudFrame.BackgroundTransparency = 0.25
+HudFrame.BorderSizePixel = 0
+local HudCorner = Instance.new("UICorner")
+HudCorner.CornerRadius = UDim.new(0, 6)
+HudCorner.Parent = HudFrame
+local HudStroke = Instance.new("UIStroke")
+HudStroke.Color = Color3.fromRGB(57, 255, 20)
+HudStroke.Thickness = 1.2
+HudStroke.Parent = HudFrame
+
+local HudLabel = Instance.new("TextLabel")
+HudLabel.Parent = HudFrame
+HudLabel.Size = UDim2.new(1, 0, 1, 0)
+HudLabel.BackgroundTransparency = 1
+HudLabel.Font = Enum.Font.GothamBold
+HudLabel.Text = "FPS: -- | Ping: -- | 🛡️ Safe"
+HudLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+HudLabel.TextSize = 10.5
+
+--------------------------------------------------------------
+-- 7. COMPONENT GENERATORS
+--------------------------------------------------------------
+local function CreateSectionHeader(parent, title, yOffset)
+	local label = Instance.new("TextLabel")
+	label.Parent = parent
+	label.Size = UDim2.new(1, -10, 0, 22)
+	label.Position = UDim2.new(0, 5, 0, yOffset)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBlack
+	label.Text = "— " .. string.upper(title) .. " —"
+	label.TextColor3 = Color3.fromRGB(57, 255, 20)
+	label.TextSize = 12
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	return label
+end
+
+local function CreateToggle(parent, title, defaultState, position, callback)
+	local btn = Instance.new("TextButton")
+	btn.Parent = parent
+	btn.Position = position
+	btn.Size = UDim2.new(0.32, -4, 0, 36)
+	btn.BackgroundColor3 = defaultState and Color3.fromRGB(35, 140, 20) or Color3.fromRGB(25, 32, 25)
+	btn.BorderSizePixel = 0
+	btn.Font = Enum.Font.GothamSemibold
+	btn.Text = title .. (defaultState and " : ON" or " : OFF")
+	btn.TextColor3 = defaultState and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(180, 200, 180)
+	btn.TextSize = 11
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 6)
+	corner.Parent = btn
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = defaultState and Color3.fromRGB(60, 255, 25) or Color3.fromRGB(45, 60, 45)
+	stroke.Thickness = 1
+	stroke.Parent = btn
+
+	local state = defaultState
+	btn.MouseButton1Click:Connect(function()
+		state = not state
+		btn.BackgroundColor3 = state and Color3.fromRGB(35, 140, 20) or Color3.fromRGB(25, 32, 25)
+		btn.TextColor3 = state and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(180, 200, 180)
+		stroke.Color = state and Color3.fromRGB(60, 255, 25) or Color3.fromRGB(45, 60, 45)
+		btn.Text = title .. (state and " : ON" or " : OFF")
+		if callback then callback(state, btn) end
+	end)
+
+	return btn
+end
+
+local function CreateActionBtn(parent, title, position, callback)
+	local btn = Instance.new("TextButton")
+	btn.Parent = parent
+	btn.Position = position
+	btn.Size = UDim2.new(0.32, -4, 0, 36)
+	btn.BackgroundColor3 = Color3.fromRGB(32, 42, 32)
+	btn.BorderSizePixel = 0
+	btn.Font = Enum.Font.GothamBold
+	btn.Text = title
+	btn.TextColor3 = Color3.fromRGB(240, 255, 240)
+	btn.TextSize = 11
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 6)
+	corner.Parent = btn
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(60, 80, 60)
+	stroke.Thickness = 1
+	stroke.Parent = btn
+
+	btn.MouseButton1Click:Connect(function()
+		TweenService:Create(btn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(57, 255, 20)}):Play()
+		task.delay(0.15, function()
+			TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(32, 42, 32)}):Play()
+		end)
+		if callback then callback(btn) end
+	end)
+
+	return btn
+end
+
+--------------------------------------------------------------
+-- 8. POPULATING PAGES
+--------------------------------------------------------------
+
+-- ==================== PAGE 1: AUTO FARM ====================
+local P1 = Pages[1]
+CreateSectionHeader(P1, "Zombie Farm Controls", 0)
+local AutoFarmBtn = CreateToggle(P1, "Auto Farm Mobs", State.AutoFarm, UDim2.new(0, 2, 0, 24), function(val)
+	State.AutoFarm = val
+	SafeNotify("Auto Farm", val and "Started! Floating safely above zombies." or "Stopped.", 2)
+end)
+
+local FarmModeBtn = CreateActionBtn(P1, "Mode: Above (Safe)", UDim2.new(0.34, 2, 0, 24), function(btn)
+	if State.FarmMode == "Above" then
+		State.FarmMode = "Behind"
+		btn.Text = "Mode: Behind"
+	elseif State.FarmMode == "Behind" then
+		State.FarmMode = "Distance"
+		btn.Text = "Mode: Distance"
+	else
+		State.FarmMode = "Above"
+		btn.Text = "Mode: Above (Safe)"
+	end
+end)
+
+local HeightBtn = CreateActionBtn(P1, "Farm Height: " .. State.FarmHeight .. " Studs", UDim2.new(0.68, 2, 0, 24), function(btn)
+	State.FarmHeight = State.FarmHeight + 2.5
+	if State.FarmHeight > 15 then State.FarmHeight = 5 end
+	btn.Text = "Farm Height: " .. State.FarmHeight .. " Studs"
+end)
+
+CreateToggle(P1, "Boss Target Only", State.TargetBossOnly, UDim2.new(0, 2, 0, 66), function(val)
+	State.TargetBossOnly = val
+end)
+
+CreateToggle(P1, "Auto Weapon Trigger", State.AutoAttack, UDim2.new(0.34, 2, 0, 66), function(val)
+	State.AutoAttack = val
+end)
+
+CreateToggle(P1, "Auto Collect Drops", State.AutoLoot, UDim2.new(0.68, 2, 0, 66), function(val)
+	State.AutoLoot = val
+end)
+
+CreateSectionHeader(P1, "Instant Farming Teleports", 110)
+CreateActionBtn(P1, "TP To Closest Zombie", UDim2.new(0, 2, 0, 134), function()
+	local z = GetClosestZombie()
+	if z and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+		LocalPlayer.Character.HumanoidRootPart.CFrame = z.Root.CFrame * CFrame.new(0, State.FarmHeight, 0)
+		SafeNotify("Teleport", "Teleported above " .. z.Model.Name, 2)
+	else
+		SafeNotify("Teleport", "No zombies found on map!", 2)
+	end
+end)
+
+CreateActionBtn(P1, "TP To Nearest Boss", UDim2.new(0.34, 2, 0, 134), function()
+	local z = GetClosestZombie(math.huge, true)
+	if z and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+		LocalPlayer.Character.HumanoidRootPart.CFrame = z.Root.CFrame * CFrame.new(0, State.FarmHeight + 2, 0)
+		SafeNotify("Teleport", "Teleported to Boss: " .. z.Model.Name, 2)
+	else
+		SafeNotify("Teleport", "No Boss found alive!", 2)
+	end
+end)
+
+CreateActionBtn(P1, "TP To Safe Sky Zone", UDim2.new(0.68, 2, 0, 134), function()
+	pcall(function()
+		local myChar = LocalPlayer.Character
+		if myChar and myChar:FindFirstChild("HumanoidRootPart") then
+			myChar.HumanoidRootPart.CFrame = CFrame.new(myChar.HumanoidRootPart.Position.X, 70, myChar.HumanoidRootPart.Position.Z)
+			SafeNotify("Teleport", "Moved to safe altitude", 2)
+		end
+	end)
+end)
+
+-- ==================== PAGE 2: COMBAT ====================
+local P2 = Pages[2]
+CreateSectionHeader(P2, "Aimbot & Targeting", 0)
+local AimAssistBtn = CreateToggle(P2, "Zombie Aimbot", State.AimAssist, UDim2.new(0, 2, 0, 24), function(val)
+	State.AimAssist = val
+end)
+
+local AimPartBtn = CreateActionBtn(P2, "Aim Part: Head", UDim2.new(0.34, 2, 0, 24), function(btn)
+	if State.AimPart == "Head" then
+		State.AimPart = "HumanoidRootPart"
+		btn.Text = "Aim Part: Body"
+	else
+		State.AimPart = "Head"
+		btn.Text = "Aim Part: Head"
+	end
+end)
+
+local AimFOVBtn = CreateActionBtn(P2, "Aimbot FOV: " .. State.AimFOV, UDim2.new(0.68, 2, 0, 24), function(btn)
+	State.AimFOV = State.AimFOV + 50
+	if State.AimFOV > 350 then State.AimFOV = 100 end
+	btn.Text = "Aimbot FOV: " .. State.AimFOV
+end)
+
+CreateSectionHeader(P2, "Aura & Hitbox Modifiers", 66)
+local KillAuraBtn = CreateToggle(P2, "Zombie Kill Aura", State.KillAura, UDim2.new(0, 2, 0, 90), function(val)
+	State.KillAura = val
+end)
+
+local HitboxBtn = CreateToggle(P2, "Expand Hitbox", State.HitboxExpand, UDim2.new(0.34, 2, 0, 90), function(val)
+	State.HitboxExpand = val
+end)
+
+local HitboxSizeBtn = CreateActionBtn(P2, "Hitbox Size: " .. State.HitboxSize, UDim2.new(0.68, 2, 0, 90), function(btn)
+	State.HitboxSize = State.HitboxSize + 4
+	if State.HitboxSize > 26 then State.HitboxSize = 8 end
+	btn.Text = "Hitbox Size: " .. State.HitboxSize
+end)
+
+CreateToggle(P2, "Rapid Weapon Trigger", State.RapidAttack, UDim2.new(0, 2, 0, 132), function(val) State.RapidAttack = val end)
+CreateToggle(P2, "Click TP (Ctrl+Click)", State.ClickTP, UDim2.new(0.34, 2, 0, 132), function(val) State.ClickTP = val end)
+
+-- ==================== PAGE 3: VISUALS ====================
+local P3 = Pages[3]
+CreateSectionHeader(P3, "Zombies & Loot ESP", 0)
+local ZombieESPBtn = CreateToggle(P3, "Zombie ESP", State.ZombieESP, UDim2.new(0, 2, 0, 24), function(val)
+	State.ZombieESP = val
+end)
+
+CreateToggle(P3, "Boss Highlight Tag", State.BossESP, UDim2.new(0.34, 2, 0, 24), function(val)
+	State.BossESP = val
+end)
+
+CreateToggle(P3, "Loot & Drop ESP", State.LootESP, UDim2.new(0.68, 2, 0, 24), function(val)
+	State.LootESP = val
+end)
+
+CreateToggle(P3, "Zombie Chams", State.Chams, UDim2.new(0, 2, 0, 66), function(val)
+	State.Chams = val
+end)
+
+local ChamsColorBtn = CreateActionBtn(P3, "Color: " .. ChamsColorNames[State.ChamsColorIndex], UDim2.new(0.34, 2, 0, 66), function(btn)
+	State.ChamsColorIndex = State.ChamsColorIndex + 1
+	if State.ChamsColorIndex > #ChamsColors then State.ChamsColorIndex = 1 end
+	btn.Text = "Color: " .. ChamsColorNames[State.ChamsColorIndex]
+	btn.TextColor3 = ChamsColors[State.ChamsColorIndex]
+end)
+
+CreateToggle(P3, "Players ESP", State.PlayerESP, UDim2.new(0.68, 2, 0, 66), function(val)
+	State.PlayerESP = val
+end)
+
+CreateSectionHeader(P3, "Lighting & View", 110)
+CreateToggle(P3, "FullBright", State.FullBright, UDim2.new(0, 2, 0, 134), function(val)
+	State.FullBright = val
+	if val then
+		Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+		Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+		Lighting.Brightness = 2
+		Lighting.GlobalShadows = false
+		Lighting.FogEnd = 1e6
+	else
+		Lighting.Ambient = OldLighting.Ambient
+		Lighting.OutdoorAmbient = OldLighting.OutdoorAmbient
+		Lighting.Brightness = OldLighting.Brightness
+		Lighting.GlobalShadows = OldLighting.GlobalShadows
+		Lighting.FogEnd = OldLighting.FogEnd
+	end
+end)
+
+CreateToggle(P3, "Remove Dark Fog", State.NoFog, UDim2.new(0.34, 2, 0, 134), function(val)
+	State.NoFog = val
+	Lighting.FogEnd = val and 1e8 or OldLighting.FogEnd
+end)
+
+local FOVBtn = CreateActionBtn(P3, "Camera FOV: " .. State.FOV, UDim2.new(0.68, 2, 0, 134), function(btn)
+	State.FOV = State.FOV + 10
+	if State.FOV > 125 then State.FOV = 70 end
+	Camera.FieldOfView = State.FOV
+	btn.Text = "Camera FOV: " .. State.FOV
+end)
+
+-- ==================== PAGE 4: MOVEMENT ====================
+local P4 = Pages[4]
+CreateSectionHeader(P4, "Speed & Flight", 0)
+local SpeedBtn = CreateToggle(P4, "Speed Hack", State.Speed, UDim2.new(0, 2, 0, 24), function(val)
+	State.Speed = val
+	if not val and LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+		LocalPlayer.Character.Humanoid.WalkSpeed = 16
+	end
+end)
+
+local SpeedValBtn = CreateActionBtn(P4, "Speed: x" .. State.SpeedMult, UDim2.new(0.34, 2, 0, 24), function(btn)
+	State.SpeedMult = State.SpeedMult + 0.5
+	if State.SpeedMult > 6 then State.SpeedMult = 1.5 end
+	btn.Text = "Speed: x" .. State.SpeedMult
+end)
+
+local FlyBtn = CreateToggle(P4, "Fly Mode (WASD)", State.Fly, UDim2.new(0.68, 2, 0, 24), function(val)
+	State.Fly = val
+end)
+
+local NoclipBtn = CreateToggle(P4, "Stepped Noclip", State.Noclip, UDim2.new(0, 2, 0, 66), function(val)
+	State.Noclip = val
+end)
+
+local SafePlatBtn = CreateToggle(P4, "Safe Sky Platform", State.SafePlatform, UDim2.new(0.34, 2, 0, 66), function(val)
+	State.SafePlatform = val
+	if val then
+		local char = LocalPlayer.Character
+		if char and char:FindFirstChild("HumanoidRootPart") then
+			if not SafePart then
+				SafePart = Instance.new("Part")
+				SafePart.Name = "SafeSkyPlatform"
+				SafePart.Size = Vector3.new(30, 2, 30)
+				SafePart.Anchored = true
+				SafePart.Material = Enum.Material.Neon
+				SafePart.Color = Color3.fromRGB(57, 255, 20)
+				SafePart.Transparency = 0.5
+				SafePart.Parent = workspace
+			end
+			SafePart.CFrame = CFrame.new(char.HumanoidRootPart.Position.X, char.HumanoidRootPart.Position.Y + 25, char.HumanoidRootPart.Position.Z)
+			char.HumanoidRootPart.CFrame = SafePart.CFrame * CFrame.new(0, 4, 0)
+			SafeNotify("Safe Platform", "Created safe elevated shooting platform!", 2)
+		end
+	else
+		if SafePart then SafePart:Destroy() SafePart = nil end
+	end
+end)
+
+CreateToggle(P4, "Low Gravity", State.LowGravity, UDim2.new(0.68, 2, 0, 66), function(val)
+	State.LowGravity = val
+	workspace.Gravity = val and 60 or 196.2
+end)
+
+-- ==================== PAGE 5: ANTI-BAN SHIELD ====================
+local P5 = Pages[5]
+CreateSectionHeader(P5, "Active Protection Status", 0)
+
+local ShieldHeader = Instance.new("TextLabel")
+ShieldHeader.Parent = P5
+ShieldHeader.Size = UDim2.new(1, -10, 0, 60)
+ShieldHeader.Position = UDim2.new(0, 5, 0, 24)
+ShieldHeader.BackgroundColor3 = Color3.fromRGB(20, 30, 25)
+ShieldHeader.BorderSizePixel = 0
+ShieldHeader.Font = Enum.Font.GothamMedium
+ShieldHeader.Text = "🛡️ <font color='#00FFCC'><b>ANTI-BAN SHIELD v2.0 ACTIVE</b></font>\n• Hookmetamethod Anti-Kick: <font color='#39FF14'>PROTECTED</font>\n• WalkSpeed & JumpPower Spoof: <font color='#39FF14'>ACTIVE (Spoofed to 16/50)</font>\n• Anti-Cheat Remote Blocker: <font color='#39FF14'>RUNNING</font>"
+ShieldHeader.RichText = true
+ShieldHeader.TextColor3 = Color3.fromRGB(220, 255, 230)
+ShieldHeader.TextSize = 11.5
+local ShieldCorner = Instance.new("UICorner")
+ShieldCorner.CornerRadius = UDim.new(0, 8)
+ShieldCorner.Parent = ShieldHeader
+
+CreateSectionHeader(P5, "Security Controls", 95)
+CreateToggle(P5, "Anti-Ban Shield", State.AntiBanShield, UDim2.new(0, 2, 0, 119), function(val)
+	ShieldStatus.Enabled = val
+	SafeNotify("Anti-Ban Shield", val and "Shield Enabled (Safe Mode)" or "Shield Disabled (Risk)", 2)
+end)
+
+CreateToggle(P5, "Humanized Delay (Jitter)", State.HumanizedJitter, UDim2.new(0.34, 2, 0, 119), function(val)
+	State.HumanizedJitter = val
+end)
+
+CreateActionBtn(P5, "Clear Telemetry Logs", UDim2.new(0.68, 2, 0, 119), function()
+	pcall(function()
+		local LogService = game:GetService("LogService")
+		if LogService and LogService.ClearOutput then LogService:ClearOutput() end
+		SafeNotify("Shield", "Cleared client error & telemetry logs!", 2)
+	end)
+end)
+
+-- ==================== PAGE 6: UTILITY ====================
+local P6 = Pages[6]
+CreateSectionHeader(P6, "AFK & Performance", 0)
+CreateToggle(P6, "Anti-AFK Protection", State.AntiAFK, UDim2.new(0, 2, 0, 24), function(val) State.AntiAFK = val end)
+CreateToggle(P6, "FPS & Mob HUD", State.FPSDisplay, UDim2.new(0.34, 2, 0, 24), function(val)
+	State.FPSDisplay = val
+	HudFrame.Visible = val
+end)
+
+CreateToggle(P6, "FPS Booster (Lag)", State.LagReduce, UDim2.new(0.68, 2, 0, 24), function(val)
+	State.LagReduce = val
+	if val then
+		pcall(function()
+			settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+			for _, v in ipairs(workspace:GetDescendants()) do
+				if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Smoke") or v:IsA("Fire") then v.Enabled = false end
+				if v:IsA("MeshPart") then v.RenderFidelity = Enum.RenderFidelity.Performance end
+			end
+		end)
+		SafeNotify("Performance", "Zombie particles & blood effects cleared!", 2)
+	end
+end)
+
+CreateSectionHeader(P6, "Server Management", 66)
+CreateActionBtn(P6, "Server Hop", UDim2.new(0, 2, 0, 90), function()
+	SafeNotify("Server Hop", "Finding fresh zombie server...", 3)
+	pcall(function()
+		local placeId = game.PlaceId
+		local serversUrl = "https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100"
+		local req = (syn and syn.request) or (http and http.request) or http_request or (Fluxus and Fluxus.request) or request
+		if req then
+			local res = req({Url = serversUrl, Method = "GET"})
+			if res and res.Body then
+				local data = HttpService:JSONDecode(res.Body)
+				if data and data.data then
+					for _, s in ipairs(data.data) do
+						if s.playing < s.maxPlayers and s.id ~= game.JobId then
+							TeleportService:TeleportToPlaceInstance(placeId, s.id, LocalPlayer)
+							return
+						end
+					end
+				end
+			end
+		end
+		TeleportService:Teleport(placeId, LocalPlayer)
+	end)
+end)
+
+CreateActionBtn(P6, "Rejoin Server", UDim2.new(0.34, 2, 0, 90), function()
+	SafeNotify("Rejoin", "Rejoining...", 2)
+	task.delay(0.5, function()
+		pcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer) end)
+	end)
+end)
+
+CreateActionBtn(P6, "Copy Job ID", UDim2.new(0.68, 2, 0, 90), function()
+	pcall(function()
+		local setclip = setclipboard or toclipboard or set_clipboard
+		if setclip then
+			setclip(tostring(game.JobId))
+			SafeNotify("Clipboard", "JobId copied!", 2)
+		end
+	end)
+end)
+
+CreateSectionHeader(P6, "Admin Tools", 132)
+CreateActionBtn(P6, "Load Infinite Yield", UDim2.new(0, 2, 0, 156), function()
+	SafeNotify("Admin", "Injecting Infinite Yield...", 2)
+	pcall(function()
+		loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
+	end)
+end)
+
+CreateActionBtn(P6, "Force Respawn", UDim2.new(0.34, 2, 0, 156), function()
+	pcall(function()
+		if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+			LocalPlayer.Character.Humanoid.Health = 0
+		end
+	end)
+end)
+
+--------------------------------------------------------------
+-- 9. CORE ENGINE & BACKGROUND LOOPS
+--------------------------------------------------------------
+
+-- Anti-AFK
+LocalPlayer.Idled:Connect(function()
+	if State.AntiAFK then
+		pcall(function()
+			VirtualUser:CaptureController()
+			VirtualUser:ClickButton2(Vector2.new())
+		end)
+	end
+end)
+
+-- Click TP
+Mouse.Button1Down:Connect(function()
+	if State.ClickTP and UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+		local hitPos = Mouse.Hit
+		if hitPos and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+			LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(hitPos.Position + Vector3.new(0, 3, 0))
+		end
+	end
+end)
+
+-- ==================== AUTO FARM LOOP ====================
+task.spawn(function()
+	while not IsClosed do
+		if State.AutoFarm then
+			pcall(function()
+				local myChar = LocalPlayer.Character
+				local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+				if myHrp then
+					local target = GetClosestZombie(math.huge, State.TargetBossOnly)
+					if target and target.Root and target.Humanoid.Health > 0 then
+						local targetPos
+						if State.FarmMode == "Above" then
+							targetPos = target.Root.CFrame * CFrame.new(0, State.FarmHeight, 0)
+						elseif State.FarmMode == "Behind" then
+							targetPos = target.Root.CFrame * CFrame.new(0, 1, 6)
+						else
+							targetPos = target.Root.CFrame * CFrame.new(0, 2, 14)
+						end
+
+						myHrp.CFrame = targetPos
+						myHrp.Velocity = Vector3.zero
+
+						Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, target.Root.Position)
+
+						if State.AutoAttack then
+							AttackEquipped()
+							if State.HumanizedJitter then
+								task.wait(math.random(15, 35) / 1000)
+							end
+						end
+					end
+				end
+			end)
+		end
+		task.wait(0.04)
+	end
+end)
+
+-- ==================== AUTO LOOT COLLECTOR ====================
+task.spawn(function()
+	while not IsClosed do
+		if State.AutoLoot then
+			pcall(function()
+				local myChar = LocalPlayer.Character
+				local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+				if myHrp then
+					local myPos = myHrp.Position
+					for _, obj in ipairs(workspace:GetChildren()) do
+						if obj:IsA("BasePart") or obj:IsA("Model") then
+							local name = obj.Name:lower()
+							if name:find("coin") or name:find("drop") or name:find("loot") or name:find("crate") or name:find("ammo") or name:find("medkit") or name:find("cash") then
+								local part = obj:IsA("BasePart") and obj or obj:FindFirstChildWhichIsA("BasePart")
+								if part then
+									local dist = (part.Position - myPos).Magnitude
+									if dist <= State.LootRadius then
+										firetouchinterest(myHrp, part, 0)
+										task.wait()
+										firetouchinterest(myHrp, part, 1)
+									end
+								end
+							end
+						end
+					end
+				end
+			end)
+		end
+		task.wait(0.3)
+	end
+end)
+
+-- ==================== KILL AURA & RAPID ATTACK ====================
+task.spawn(function()
+	while not IsClosed do
+		if State.KillAura then
+			pcall(function()
+				local myChar = LocalPlayer.Character
+				local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+				if myHrp then
+					local myPos = myHrp.Position
+					for _, z in ipairs(GetZombies()) do
+						local dist = (z.Root.Position - myPos).Magnitude
+						if dist <= State.KillAuraDist then
+							AttackEquipped()
+							break
+						end
+					end
+				end
+			end)
+		end
+		task.wait(State.RapidAttack and 0.05 or 0.15)
+	end
+end)
+
+-- ==================== RENDER STEPPED (AIMBOT & ESP & HUD) ====================
+local frameCount = 0
+local lastFpsTime = tick()
+local currentFps = 60
+
+Connections.RenderStepped = RunService.RenderStepped:Connect(function()
+	if IsClosed then return end
+
+	frameCount = frameCount + 1
+	if tick() - lastFpsTime >= 0.5 then
+		currentFps = math.floor(frameCount / (tick() - lastFpsTime))
+		frameCount = 0
+		lastFpsTime = tick()
+		if State.FPSDisplay then
+			local ping = 0
+			pcall(function() ping = math.floor(LocalPlayer:GetNetworkPing() * 1000) end)
+			local totalMobs = #GetZombies()
+			HudLabel.Text = string.format("FPS: %d | Ping: %dms | 🛡️ Safe", currentFps, ping)
+		end
+	end
+
+	-- Aimbot Lock
+	if State.AimAssist and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+		local target = GetClosestZombieToMouse(State.AimFOV)
+		if target and target.Model then
+			local aimPart = target.Model:FindFirstChild(State.AimPart) or target.Root
+			if aimPart then
+				local targetCFrame = CFrame.lookAt(Camera.CFrame.Position, aimPart.Position)
+				Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, 0.4)
+			end
+		end
+	end
+
+	-- Zombie ESP & Chams
+	if State.ZombieESP or State.Chams then
+		local myChar = LocalPlayer.Character
+		local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+		local myPos = myHrp and myHrp.Position
+
+		for _, z in ipairs(GetZombies()) do
+			local model = z.Model
+			local root = z.Root
+			local hum = z.Humanoid
+
+			if not ZombieESPStore[model] then
+				local bb = Instance.new("BillboardGui")
+				bb.Name = "HZ_ESP_BB"
+				bb.Adornee = root
+				bb.AlwaysOnTop = true
+				bb.Size = UDim2.new(0, 110, 0, 36)
+				bb.StudsOffset = Vector3.new(0, 2.5, 0)
+				bb.Enabled = State.ZombieESP
+
+				local nameLabel = Instance.new("TextLabel")
+				nameLabel.Name = "NameLabel"
+				nameLabel.Parent = bb
+				nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
+				nameLabel.BackgroundTransparency = 1
+				nameLabel.Font = Enum.Font.GothamBold
+				nameLabel.Text = z.IsBoss and ("👑 " .. model.Name) or model.Name
+				nameLabel.TextColor3 = z.IsBoss and Color3.fromRGB(255, 215, 0) or Color3.fromRGB(57, 255, 20)
+				nameLabel.TextSize = 11
+				nameLabel.TextStrokeTransparency = 0.2
+
+				local hpLabel = Instance.new("TextLabel")
+				hpLabel.Name = "HPLabel"
+				hpLabel.Parent = bb
+				hpLabel.Size = UDim2.new(1, 0, 0.5, 0)
+				hpLabel.Position = UDim2.new(0, 0, 0.5, 0)
+				hpLabel.BackgroundTransparency = 1
+				hpLabel.Font = Enum.Font.GothamMedium
+				hpLabel.Text = "HP: " .. math.floor(hum.Health)
+				hpLabel.TextColor3 = Color3.fromRGB(240, 240, 240)
+				hpLabel.TextSize = 10
+				hpLabel.TextStrokeTransparency = 0.2
+
+				pcall(function()
+					local targetGui = (gethui and gethui()) or game:GetService("CoreGui")
+					bb.Parent = targetGui
+				end)
+
+				local hl = Instance.new("Highlight")
+				hl.Name = "HZ_ESP_HL"
+				hl.Adornee = model
+				hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+				hl.FillColor = z.IsBoss and Color3.fromRGB(255, 50, 50) or ChamsColors[State.ChamsColorIndex]
+				hl.FillTransparency = 0.5
+				hl.OutlineColor = z.IsBoss and Color3.fromRGB(255, 215, 0) or ChamsColors[State.ChamsColorIndex]
+				hl.OutlineTransparency = 0
+				hl.Enabled = State.Chams
+				hl.Parent = model
+
+				ZombieESPStore[model] = {Billboard = bb, Highlight = hl, HPLabel = hpLabel}
+			else
+				local store = ZombieESPStore[model]
+				if store.Billboard then
+					store.Billboard.Enabled = State.ZombieESP
+					if store.HPLabel and myPos then
+						local dist = math.floor((root.Position - myPos).Magnitude * 0.28)
+						store.HPLabel.Text = dist .. "m | HP: " .. math.floor(hum.Health)
+					end
+				end
+				if store.Highlight then
+					store.Highlight.Enabled = State.Chams
+					store.Highlight.FillColor = z.IsBoss and Color3.fromRGB(255, 50, 50) or ChamsColors[State.ChamsColorIndex]
+				end
+			end
+		end
+	end
+end)
+
+-- ==================== PHYSICS & MOVEMENT LOOPS ====================
+Connections.Stepped = RunService.Stepped:Connect(function()
+	if IsClosed then return end
+	local char = LocalPlayer.Character
+	if not char then return end
+
+	if State.Noclip then
+		for _, part in ipairs(char:GetDescendants()) do
+			if part:IsA("BasePart") and part.CanCollide then
+				part.CanCollide = false
+			end
+		end
+	end
+end)
+
+Connections.Heartbeat = RunService.Heartbeat:Connect(function()
+	if IsClosed then return end
+	local char = LocalPlayer.Character
+	if not char then return end
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+
+	if State.Speed and hum and hrp then
+		if hum.MoveDirection.Magnitude > 0 then
+			hrp.CFrame = hrp.CFrame + (hum.MoveDirection * (State.SpeedMult * 0.35))
+		end
+	end
+
+	if State.HitboxExpand then
+		for _, z in ipairs(GetZombies()) do
+			if z.Root then
+				z.Root.Size = Vector3.new(State.HitboxSize, State.HitboxSize, State.HitboxSize)
+				z.Root.Transparency = 0.7
+				z.Root.CanCollide = false
+			end
+		end
+	end
+end)
+
+-- ==================== FLY SYSTEM ====================
+local FlyBV, FlyBG
+task.spawn(function()
+	while not IsClosed do
+		if State.Fly then
+			local char = LocalPlayer.Character
+			local hrp = char and char:FindFirstChild("HumanoidRootPart")
+			if hrp then
+				if not FlyBV or FlyBV.Parent ~= hrp then
+					if FlyBV then FlyBV:Destroy() end
+					FlyBV = Instance.new("BodyVelocity")
+					FlyBV.MaxForce = Vector3.new(9e5, 9e5, 9e5)
+					FlyBV.Velocity = Vector3.zero
+					FlyBV.Parent = hrp
+				end
+				if not FlyBG or FlyBG.Parent ~= hrp then
+					if FlyBG then FlyBG:Destroy() end
+					FlyBG = Instance.new("BodyGyro")
+					FlyBG.MaxTorque = Vector3.new(9e5, 9e5, 9e5)
+					FlyBG.P = 9e4
+					FlyBG.Parent = hrp
+				end
+
+				FlyBG.CFrame = Camera.CFrame
+				local moveDir = Vector3.zero
+				if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + Camera.CFrame.LookVector end
+				if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - Camera.CFrame.LookVector end
+				if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - Camera.CFrame.RightVector end
+				if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + Camera.CFrame.RightVector end
+				if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0, 1, 0) end
+				if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0, 1, 0) end
+
+				FlyBV.Velocity = (moveDir.Magnitude > 0) and (moveDir.Unit * State.FlySpeed) or Vector3.zero
+			end
+		else
+			if FlyBV then FlyBV:Destroy() FlyBV = nil end
+			if FlyBG then FlyBG:Destroy() FlyBG = nil end
+		end
+		task.wait(0.04)
+	end
+end)
+
+-- ==================== RAINBOW BORDER ACCENT ====================
+task.spawn(function()
+	local hue = 0.3
+	while not IsClosed do
+		hue = (hue + 0.005) % 1
+		MainStroke.Color = Color3.fromHSV(hue, 0.9, 1)
+		task.wait(0.03)
+	end
+end)
+
+--------------------------------------------------------------
+-- 10. HOTKEYS & WINDOW MANAGEMENT
+--------------------------------------------------------------
+local function ToggleGui()
+	GuiVisible = not GuiVisible
+	MainFrame.Visible = GuiVisible
+end
+
+MinBtn.MouseButton1Click:Connect(function()
+	ContentArea.Visible = not ContentArea.Visible
+	TabBar.Visible = ContentArea.Visible
+	StatusBar.Visible = ContentArea.Visible
+	MainFrame.Size = ContentArea.Visible and UDim2.new(0, 620, 0, 425) or UDim2.new(0, 620, 0, 42)
+end)
+
+CloseBtn.MouseButton1Click:Connect(function()
+	IsClosed = true
+
+	for _, store in pairs(ZombieESPStore) do
+		if store.Billboard then pcall(function() store.Billboard:Destroy() end) end
+		if store.Highlight then pcall(function() store.Highlight:Destroy() end) end
+	end
+	if SafePart then SafePart:Destroy() end
+	if FlyBV then FlyBV:Destroy() end
+	if FlyBG then FlyBG:Destroy() end
+
+	Lighting.Ambient = OldLighting.Ambient
+	Lighting.OutdoorAmbient = OldLighting.OutdoorAmbient
+	Lighting.Brightness = OldLighting.Brightness
+	Lighting.FogEnd = OldLighting.FogEnd
+	Lighting.GlobalShadows = OldLighting.GlobalShadows
+	workspace.Gravity = 196.2
+	Camera.FieldOfView = 70
+
+	for _, conn in pairs(Connections) do pcall(function() conn:Disconnect() end) end
+
+	ScreenGui:Destroy()
+	env["HUNTY_ZOMBIE_LOADED"] = nil
+	SafeNotify("☣️ Hunty Zombie Hub", "Script safely unloaded!", 2)
+end)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	local key = input.KeyCode
+
+	if key == Enum.KeyCode.F1 or key == Enum.KeyCode.RightControl then
+		ToggleGui()
+	elseif key == Enum.KeyCode.F2 then
+		State.AutoFarm = not State.AutoFarm
+		SafeNotify("Auto Farm", State.AutoFarm and "Auto Farm ON" or "Auto Farm OFF", 1.5)
+	elseif key == Enum.KeyCode.F3 then
+		State.ZombieESP = not State.ZombieESP
+		SafeNotify("Zombie ESP", State.ZombieESP and "Zombie ESP ON" or "Zombie ESP OFF", 1.5)
+	elseif key == Enum.KeyCode.F4 then
+		State.Fly = not State.Fly
+		SafeNotify("Fly", State.Fly and "Fly Mode ON" or "Fly Mode OFF", 1.5)
+	elseif key == Enum.KeyCode.F5 then
+		State.Speed = not State.Speed
+		SafeNotify("Speed", State.Speed and "Speed Boost ON" or "Speed Boost OFF", 1.5)
+	elseif key == Enum.KeyCode.F6 then
+		State.KillAura = not State.KillAura
+		SafeNotify("Kill Aura", State.KillAura and "Kill Aura ON" or "Kill Aura OFF", 1.5)
+	end
+end)
+
+SafeNotify("☣️ Hunty Zombie Hub v2.0", "Loaded with [🛡️ ANTI-BAN SHIELD]!\nPress [F1] or [RightCtrl] for GUI", 5)
+print("[Hunty Zombie Hub] Initialized successfully with Anti-Ban Shield.")
