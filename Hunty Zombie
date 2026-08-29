@@ -309,9 +309,9 @@ local function GetClosestZombie(maxDist, bossOnly)
 	local myPos = myChar.HumanoidRootPart.Position
 
 	for _, z in ipairs(GetZombies()) do
-		if z.Root and z.Root.Parent and (not bossOnly or z.IsBoss) then
+		if z.Model and z.Model.Parent and z.Root and z.Root.Parent and (not bossOnly or z.IsBoss) then
 			local hum = z.Model:FindFirstChildOfClass("Humanoid")
-			local curHp = hum and hum.Health or z.CurrentHP
+			local curHp, _ = GetHealthInfo(z.Model, hum)
 			if curHp > 0 then
 				local dist = (z.Root.Position - myPos).Magnitude
 				if dist < closestDist then
@@ -330,15 +330,19 @@ local function GetClosestZombieToMouse(fovLimit)
 	local mousePos = Vector2.new(Mouse.X, Mouse.Y)
 
 	for _, z in ipairs(GetZombies()) do
-		if z.Root and z.Root.Parent then
-			local targetPart = z.Model:FindFirstChild(State.AimPart) or z.Root
-			if targetPart then
-				local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-				if onScreen then
-					local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-					if dist < closestDist then
-						closestDist = dist
-						closest = z
+		if z.Model and z.Model.Parent and z.Root and z.Root.Parent then
+			local hum = z.Model:FindFirstChildOfClass("Humanoid")
+			local curHp, _ = GetHealthInfo(z.Model, hum)
+			if curHp > 0 then
+				local targetPart = z.Model:FindFirstChild(State.AimPart) or z.Root
+				if targetPart then
+					local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+					if onScreen then
+						local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+						if dist < closestDist then
+							closestDist = dist
+							closest = z
+						end
 					end
 				end
 			end
@@ -350,19 +354,8 @@ end
 --------------------------------------------------------------
 -- 6. ASYNCHRONOUS AUTO ATTACK & SKILL TRIGGER
 --------------------------------------------------------------
-task.spawn(function()
-	pcall(function()
-		for _, v in ipairs(ReplicatedStorage:GetDescendants()) do
-			if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
-				local name = v.Name:lower()
-				if name:find("attack") or name:find("hit") or name:find("damage") or name:find("shoot") or name:find("swing") or name:find("fire") or name:find("weapon") or name:find("combat") then
-					table.insert(FoundCombatRemotes, v)
-				end
-			end
-		end
-	end)
-end)
 
+local VIM_Debounce = false
 local function TriggerAutoAttack(targetZombie)
 	task.spawn(function()
 		pcall(function()
@@ -373,10 +366,17 @@ local function TriggerAutoAttack(targetZombie)
 			local cy = (Camera.ViewportSize.Y > 0) and (Camera.ViewportSize.Y / 2) or 300
 
 			-- Method 1: Precision Viewport Mouse Click with Cycle
-			if VirtualInputManager then
-				VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
-				task.wait(0.01)
-				VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
+			if VirtualInputManager and not VIM_Debounce then
+				VIM_Debounce = true
+				task.spawn(function()
+					pcall(function()
+						VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
+						task.wait(0.01)
+						VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
+					end)
+					task.wait(0.02)
+					VIM_Debounce = false
+				end)
 			end
 
 			-- Method 2: mouse1click / mouse1press executor function
@@ -416,16 +416,7 @@ local function TriggerAutoAttack(targetZombie)
 				end
 			end
 
-			-- Method 5: Direct ReplicatedStorage Combat Remotes
-			if targetZombie and targetZombie.Root then
-				for _, remote in ipairs(FoundCombatRemotes) do
-					if remote:IsA("RemoteEvent") then
-						pcall(function()
-							remote:FireServer(targetZombie.Root, targetZombie.Model, targetZombie.Root.Position)
-						end)
-					end
-				end
-			end
+			-- Removed Method 5 (Direct Remote Firing) to prevent triggering Anti-Cheat honeypots
 		end)
 	end)
 end
@@ -1166,7 +1157,8 @@ task.spawn(function()
 					end
 
 					local target = GetClosestZombie(math.huge, State.TargetBossOnly)
-					if target and target.Root and target.Root.Parent then
+					-- Prevent teleporting to voided targets to avoid Anti-Void infinite loop
+					if target and target.Root and target.Root.Parent and target.Root.Position.Y > -40 then
 						local targetPos
 						if State.FarmMode == "Above" then
 							targetPos = target.Root.CFrame * CFrame.new(0, State.FarmHeight, 0)
@@ -1182,13 +1174,18 @@ task.spawn(function()
 						myHrp.CFrame = targetPos
 						myHrp.AssemblyLinearVelocity = Vector3.zero
 
-						-- Anti-Fling Bring Mobs / Vacuum Mode
+						-- Anti-Fling Bring Mobs / Vacuum Mode (Clustered on Target)
 						if State.BringMobs then
 							for _, z in ipairs(GetZombies()) do
-								if z.Root and z.Root.Parent then
-									z.Root.CanCollide = false
-									z.Root.CFrame = myHrp.CFrame * CFrame.new(0, -2, -6)
-									z.Root.AssemblyLinearVelocity = Vector3.zero
+								if z.Model and z.Model.Parent and z.Root and z.Root.Parent and z.Model ~= target.Model then
+									if not z.Root.Anchored then -- Skip anchored mobs (bosses/statues)
+										local curHp, _ = GetHealthInfo(z.Model, z.Model:FindFirstChildOfClass("Humanoid"))
+										if curHp > 0 then
+											z.Root.CanCollide = false
+											z.Root.CFrame = target.Root.CFrame * CFrame.new(math.random(-2, 2), 0, math.random(-2, 2))
+											z.Root.AssemblyLinearVelocity = Vector3.zero
+										end
+									end
 								end
 							end
 						end
@@ -1275,12 +1272,15 @@ task.spawn(function()
 				if myHrp then
 					local myPos = myHrp.Position
 					for _, z in ipairs(GetZombies()) do
-						if z.Root and z.Root.Parent then
-							local dist = (z.Root.Position - myPos).Magnitude
-							if dist <= State.KillAuraDist then
-								TriggerAutoAttack(z)
-								TriggerSkillsAndReload()
-								break
+						if z.Model and z.Model.Parent and z.Root and z.Root.Parent then
+							local curHp, _ = GetHealthInfo(z.Model, z.Model:FindFirstChildOfClass("Humanoid"))
+							if curHp > 0 then
+								local dist = (z.Root.Position - myPos).Magnitude
+								if dist <= State.KillAuraDist then
+									TriggerAutoAttack(z)
+									TriggerSkillsAndReload()
+									break
+								end
 							end
 						end
 					end
@@ -1341,7 +1341,7 @@ Connections.RenderStepped = RunService.RenderStepped:Connect(function()
 		end
 	end
 
-	-- Garbage Collect Destroyed Models from ESP Stores
+	-- Garbage Collect Destroyed Models from ESP Stores and Hitbox Cache
 	for model, store in pairs(ZombieESPStore) do
 		if not model or not model.Parent then
 			if store.Billboard then pcall(function() store.Billboard:Destroy() end) end
@@ -1353,6 +1353,11 @@ Connections.RenderStepped = RunService.RenderStepped:Connect(function()
 		if not player or not player.Parent or not player.Character or not player.Character.Parent then
 			if store.Billboard then pcall(function() store.Billboard:Destroy() end) end
 			PlayerESPStore[player] = nil
+		end
+	end
+	for part, _ in pairs(ModifiedHitboxes) do
+		if not part or not part.Parent then
+			ModifiedHitboxes[part] = nil
 		end
 	end
 
