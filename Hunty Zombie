@@ -1170,8 +1170,8 @@ task.spawn(function()
 							targetPos = target.Root.CFrame * CFrame.new(0, 2, 14)
 						end
 
-						-- Position character smoothly
-						myHrp.CFrame = targetPos
+						-- Position character smoothly and ALWAYS face the target
+						myHrp.CFrame = CFrame.lookAt(targetPos.Position, target.Root.Position)
 						myHrp.AssemblyLinearVelocity = Vector3.zero
 
 						-- Anti-Fling Bring Mobs / Vacuum Mode (Clustered on Target)
