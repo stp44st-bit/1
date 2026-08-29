@@ -1,8 +1,11 @@
+---@diagnostic disable
+--!nocheck
+--!nolint
 --[[
 	========================================================================
 	☣️ HUNTY ZOMBIES MEGA SUITE v5.5 (Flawless Pro Edition) ☣️
 	Zero-Lag Auto-Farm, Anti-Fling Mob Vacuum, Instant Target Switching,
-	Loot & Player ESP, Hitbox Revert, Anti-Void & Anti-Ban Suite
+	Silent Aim Metamethod Hook, Loot & Player ESP, Hitbox Revert & Anti-Ban
 	
 	Tested & Optimized for: Solara, Xeno, Wave, Fluxus, Delta, Codex, MacSploit
 	========================================================================
@@ -141,6 +144,9 @@ local OldLighting = {
 	ClockTime = Lighting.ClockTime
 }
 
+local ActiveAimTarget = nil
+local ActiveAimPart = nil
+
 --------------------------------------------------------------
 -- 4. BULLETPROOF ANTI-BAN SHIELD (SAFE METAMETHOD HOOK)
 --------------------------------------------------------------
@@ -193,6 +199,34 @@ pcall(function()
 				end))
 			end
 			set_ro(gameMt, true)
+		end
+
+		-- Silent Aim Hook for Gun Engines (FE Gun Kit, ACS, Raycast Hitboxes)
+		local mouseMt = get_raw_mt(Mouse)
+		if mouseMt then
+			set_ro(mouseMt, false)
+			local oldIndex = mouseMt.__index
+			local newc = newcclosure or function(f) return f end
+
+			if hook_mm then
+				oldIndex = hook_mm(Mouse, "__index", newc(function(self, idx)
+					if not checkcaller or not checkcaller() then
+						if (State.AutoFarm or State.KillAura or State.AimAssist) and ActiveAimPart and ActiveAimPart.Parent then
+							if idx == "Hit" then
+								return CFrame.new(ActiveAimPart.Position)
+							elseif idx == "Target" then
+								return ActiveAimPart
+							elseif idx == "UnitRay" then
+								local origin = Camera.CFrame.Position
+								local dir = (ActiveAimPart.Position - origin).Unit
+								return Ray.new(origin, dir)
+							end
+						end
+					end
+					return oldIndex(self, idx)
+				end))
+			end
+			set_ro(mouseMt, true)
 		end
 	end
 end)
@@ -365,6 +399,12 @@ local function TriggerAutoAttack(targetZombie)
 			local cx = (Camera.ViewportSize.X > 0) and (Camera.ViewportSize.X / 2) or 500
 			local cy = (Camera.ViewportSize.Y > 0) and (Camera.ViewportSize.Y / 2) or 300
 
+			-- Update Active Aim Target for Silent Aim Metamethod Hook
+			if targetZombie and targetZombie.Model then
+				ActiveAimTarget = targetZombie
+				ActiveAimPart = targetZombie.Model:FindFirstChild("Head") or targetZombie.Root
+			end
+
 			-- Method 1: Precision Viewport Mouse Click with Cycle
 			if VirtualInputManager and not VIM_Debounce then
 				VIM_Debounce = true
@@ -388,24 +428,57 @@ local function TriggerAutoAttack(targetZombie)
 				mouse1release()
 			end
 
-			-- Method 3: VirtualUser Button1Down
+			-- Method 3: VirtualUser Button1Down & ClickButton1
 			if VirtualUser then
-				VirtualUser:CaptureController()
-				VirtualUser:Button1Down(Vector2.new(cx, cy))
-				task.wait(0.01)
-				VirtualUser:Button1Up(Vector2.new(cx, cy))
+				pcall(function()
+					VirtualUser:CaptureController()
+					VirtualUser:Button1Down(Vector2.new(cx, cy))
+					VirtualUser:ClickButton1(Vector2.new(cx, cy))
+					task.wait(0.01)
+					VirtualUser:Button1Up(Vector2.new(cx, cy))
+				end)
 			end
 
-			-- Method 4: Tool Activation & Tool Remotes
+			-- Method 4: Tool Activation & Melee Touch Interest & Tool Remotes
 			local tool = myChar:FindFirstChildOfClass("Tool")
 			if tool then
 				tool:Activate()
-				for _, v in ipairs(tool:GetDescendants()) do
-					if v:IsA("RemoteEvent") then
-						if targetZombie and targetZombie.Root then
-							v:FireServer(targetZombie.Root, targetZombie.Root.Position)
-						else
-							v:FireServer()
+
+				-- Simulate Physical Touch for Melee Weapons (Swords, Bats, Knives, Fists)
+				if targetZombie and targetZombie.Model then
+					local targetParts = {
+						targetZombie.Model:FindFirstChild("Head"),
+						targetZombie.Root,
+						targetZombie.Model:FindFirstChild("UpperTorso"),
+						targetZombie.Model:FindFirstChild("Torso")
+					}
+					for _, toolPart in ipairs(tool:GetDescendants()) do
+						if toolPart:IsA("BasePart") then
+							for _, tp in ipairs(targetParts) do
+								if tp and tp:IsA("BasePart") then
+									pcall(function()
+										firetouchinterest(toolPart, tp, 0)
+										firetouchinterest(toolPart, tp, 1)
+									end)
+								end
+							end
+						end
+					end
+				end
+
+				-- Fire Tool-specific Remote Events with standard combat signatures
+				if targetZombie and targetZombie.Root then
+					local aimTarget = targetZombie.Model:FindFirstChild("Head") or targetZombie.Root
+					for _, v in ipairs(tool:GetDescendants()) do
+						if v:IsA("RemoteEvent") then
+							pcall(function() v:FireServer(aimTarget.Position) end)
+							pcall(function() v:FireServer(aimTarget, aimTarget.Position) end)
+							pcall(function() v:FireServer(targetZombie.Model) end)
+							pcall(function() v:FireServer(aimTarget) end)
+							pcall(function() v:FireServer() end)
+						elseif v:IsA("RemoteFunction") then
+							pcall(function() v:InvokeServer(aimTarget, aimTarget.Position) end)
+							pcall(function() v:InvokeServer(aimTarget.Position) end)
 						end
 					end
 				end
@@ -415,8 +488,6 @@ local function TriggerAutoAttack(targetZombie)
 					myChar.Humanoid:EquipTool(bpTool)
 				end
 			end
-
-			-- Removed Method 5 (Direct Remote Firing) to prevent triggering Anti-Cheat honeypots
 		end)
 	end)
 end
@@ -876,6 +947,8 @@ CreateToggle(P2, "💀 Expand Hitbox", State.HitboxExpand, UDim2.new(0.34, 2, 0,
 					part.Size = originalData.Size
 					part.Transparency = originalData.Transparency
 					part.CanCollide = originalData.CanCollide
+					part.CanTouch = originalData.CanTouch
+					part.CanQuery = originalData.CanQuery
 				end
 			end)
 		end
@@ -1295,27 +1368,43 @@ end)
 RunService:BindToRenderStep("MeeHubAimbot_HZ", Enum.RenderPriority.Camera.Value + 1, function()
 	if IsClosed then return end
 
-	-- Aimbot Manual Lock
-	if State.AimAssist and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
-		local target = GetClosestZombieToMouse(State.AimFOV)
-		if target and target.Model then
-			local aimPart = target.Model:FindFirstChild(State.AimPart) or target.Root
-			if aimPart and (aimPart.Position - Camera.CFrame.Position).Magnitude > 0.5 then
-				local targetCFrame = CFrame.lookAt(Camera.CFrame.Position, aimPart.Position)
-				Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, State.AimSmoothness)
-			end
-		end
-	end
-
-	-- Auto Farm Camera Tracking
+	-- Auto Farm Camera Tracking (Align directly from eyes to avoid 3rd-person self-body blocking)
 	if State.AutoFarm then
 		local target = GetClosestZombie(math.huge, State.TargetBossOnly)
 		if target and target.Root and target.Root.Parent then
 			local aimPart = target.Model:FindFirstChild("Head") or target.Root
 			if aimPart and (aimPart.Position - Camera.CFrame.Position).Magnitude > 0.5 then
-				Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, aimPart.Position)
+				ActiveAimTarget = target
+				ActiveAimPart = aimPart
+				local myChar = LocalPlayer.Character
+				local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+				if myHrp then
+					Camera.CFrame = CFrame.lookAt(myHrp.Position + Vector3.new(0, 1.5, 0), aimPart.Position)
+				else
+					Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, aimPart.Position)
+				end
 			end
 		end
+	elseif State.KillAura then
+		local target = GetClosestZombie(State.KillAuraDist, State.TargetBossOnly)
+		if target and target.Root and target.Root.Parent then
+			ActiveAimTarget = target
+			ActiveAimPart = target.Model:FindFirstChild("Head") or target.Root
+		end
+	elseif State.AimAssist and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+		local target = GetClosestZombieToMouse(State.AimFOV)
+		if target and target.Model then
+			local aimPart = target.Model:FindFirstChild(State.AimPart) or target.Root
+			if aimPart and (aimPart.Position - Camera.CFrame.Position).Magnitude > 0.5 then
+				ActiveAimTarget = target
+				ActiveAimPart = aimPart
+				local targetCFrame = CFrame.lookAt(Camera.CFrame.Position, aimPart.Position)
+				Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, State.AimSmoothness)
+			end
+		end
+	else
+		ActiveAimTarget = nil
+		ActiveAimPart = nil
 	end
 end)
 
@@ -1511,7 +1600,7 @@ Connections.Heartbeat = RunService.Heartbeat:Connect(function()
 		end
 	end
 
-	-- Hitbox Expander with Original Property Retention
+	-- Hitbox Expander with Original Property Retention & Raycast Query Support
 	if State.HitboxExpand then
 		for _, z in ipairs(GetZombies()) do
 			if z.Model and z.Model.Parent then
@@ -1520,22 +1609,30 @@ Connections.Heartbeat = RunService.Heartbeat:Connect(function()
 					ModifiedHitboxes[head] = {
 						Size = head.Size,
 						Transparency = head.Transparency,
-						CanCollide = head.CanCollide
+						CanCollide = head.CanCollide,
+						CanTouch = head.CanTouch,
+						CanQuery = head.CanQuery
 					}
 					head.Size = Vector3.new(State.HitboxSize, State.HitboxSize, State.HitboxSize)
 					head.Transparency = 0.65
 					head.CanCollide = false
+					head.CanTouch = true
+					head.CanQuery = true
 					head.Massless = true
 				end
 				if z.Root and z.Root:IsA("BasePart") and z.Root ~= head and not ModifiedHitboxes[z.Root] then
 					ModifiedHitboxes[z.Root] = {
 						Size = z.Root.Size,
 						Transparency = z.Root.Transparency,
-						CanCollide = z.Root.CanCollide
+						CanCollide = z.Root.CanCollide,
+						CanTouch = z.Root.CanTouch,
+						CanQuery = z.Root.CanQuery
 					}
 					z.Root.Size = Vector3.new(State.HitboxSize, State.HitboxSize, State.HitboxSize)
 					z.Root.Transparency = 0.75
 					z.Root.CanCollide = false
+					z.Root.CanTouch = true
+					z.Root.CanQuery = true
 					z.Root.Massless = true
 				end
 			end
@@ -1626,6 +1723,8 @@ CloseBtn.MouseButton1Click:Connect(function()
 				part.Size = originalData.Size
 				part.Transparency = originalData.Transparency
 				part.CanCollide = originalData.CanCollide
+				part.CanTouch = originalData.CanTouch
+				part.CanQuery = originalData.CanQuery
 			end
 		end)
 	end
