@@ -193,22 +193,30 @@ local milkOk, milkErr = xpcall(function()
 		"AHE_Loadout", "AHE_Profile", "AHE_Gear", "AHE_StandSkill", "AHE_Hiraishin", "AHE_Revive", "AHE_Adapt", "AHE_Units", "AHE_Station", "AHE_Potion",
 		"AHE_Party", "AHE_Clash", "AHE_ClashDuel", "AHE_SkyDev", "AHE_Tutorial", "AHE_Title", "AHE_Offline", "AHE_RespawnMe" }) do NOISE[n] = true end
 	local lastSpy = {}
-	local recentCalls = {}     -- last remotes you fired; the one right before a mode starts = entry remote
-	local NOT_ENTRY = { AHE_EggStand = true, AHE_EggOpen = true, AHE_EggHatch = true, AHE_Sell = true, AHE_ForestItems = true, AHE_InfinityEggs = true,
-		AHE_RewardPopup = true, AHE_Obito = true, AHE_Kamui = true, AHE_Inventory = true, AHE_Quest = true, AHE_Index = true, AHE_Trait = true, AHE_Evo = true }
-	local armClaimUntil = 0   -- while armed, the next non-noise remote you fire becomes the reward-claim remote
+	-- v5: forget anything learned automatically by older versions (they could learn the leave / replay vote by mistake)
+	if not env.MilkHatch_V5 then
+		env.MilkHatch_V5 = true
+		L.claim, L.lastEntry, L.ENTRY_AUTO, L.entryName, L.replayCall = nil, nil, nil, nil, nil
+	end
+	local NOT_LEARN = { AHE_EggStand = true, AHE_EggOpen = true, AHE_EggHatch = true, AHE_Sell = true, AHE_ForestItems = true, AHE_InfinityEggs = true }
+	local armClaimUntil, armReplayUntil = 0, 0   -- only armed by the buttons in the menu
 	local popupAt, popupArgs = -100, nil
+	local lastUserInput = -100
 
 	env.MilkHatch_On = true
 	env.MilkHatch_Cap = function(remote, method, nm, args)
-		if armClaimUntil > os.clock() and not NOISE[nm] and not WATCH[nm] and nm ~= "AHE_RewardPopup" then
-			armClaimUntil = 0
-			L.claim = { remote = remote, method = method, args = args, popup = popupArgs, name = nm }
-			note("learned CLAIM " .. nm .. " " .. ser(args))
-		end
-		if not NOISE[nm] and not NOT_ENTRY[nm] and not (L.claim and L.claim.remote == remote) then
-			recentCalls[#recentCalls + 1] = { remote = remote, method = method, args = args, name = nm, t = os.clock() }
-			if #recentCalls > 30 then table.remove(recentCalls, 1) end
+		local now = os.clock()
+		if (armClaimUntil > now or armReplayUntil > now) and not NOISE[nm] and not NOT_LEARN[nm] then
+			local rec = { remote = remote, method = method, args = args, popup = popupArgs, name = nm }
+			if armReplayUntil > now then
+				armReplayUntil = 0
+				L.replayCall = rec
+				note("learned REPLAY " .. nm .. " " .. ser(args))
+			else
+				armClaimUntil = 0
+				L.claim = rec
+				note("learned CLAIM " .. nm .. " " .. ser(args))
+			end
 		end
 		if WATCH[nm] then
 			local near = nearestStand()
@@ -217,7 +225,6 @@ local milkOk, milkErr = xpcall(function()
 				stand = near and { inst = near, id = near:GetAttribute("BaseId"), egg = near:GetAttribute("Egg"), name = near:GetAttribute("EggName") } or nil,
 			}
 			if EGG[nm] then L.lastEgg = nm end
-			if ENTRY[nm] then L.lastEntry = nm L.entryName = nm end
 			note("learned " .. nm .. " " .. ser(args))
 		end
 		if cfg.Spy and not NOISE[nm] then
@@ -307,7 +314,7 @@ local milkOk, milkErr = xpcall(function()
 	local function claimNow()
 		local c = L.claim
 		if not c or not c.remote or not c.remote.Parent then return false end
-		if os.clock() - lastClaim < 0.6 then return false end
+		if os.clock() - lastClaim < 3 then return false end
 		lastClaim = os.clock()
 		local a = table.pack(table.unpack(c.args, 1, c.args.n))
 		-- args that came straight from the popup event are swapped for the current popup's values
@@ -338,10 +345,9 @@ local milkOk, milkErr = xpcall(function()
 		local out = {}
 		for i = 1, math.min(popupArgs.n, 6) do out[#out + 1] = ser(popupArgs[i]) end
 		note("POPUP " .. table.concat(out, " | "))
-		if not L.claim then armClaimUntil = os.clock() + 10 end   -- first time: next remote you fire = claim remote
-		if cfg.AutoClaim then
-			task.delay(cfg.ClaimDelay, function()
-				if running and cfg.AutoClaim and L.claim then claimNow() end
+		if cfg.AutoClaim and env.MilkHatch_AutoClaim then
+			task.delay(cfg.ClaimDelay + 0.4, function()
+				if running and cfg.AutoClaim then env.MilkHatch_AutoClaim("event") end
 			end)
 		end
 	end
@@ -1205,59 +1211,27 @@ local milkOk, milkErr = xpcall(function()
 		end
 	end)
 
-	------------------------------------------------------------ popup detection by gui (in case the popup is not AHE_RewardPopup)
-	do
-		local GUI_WORDS = { "reward", "popup", "claim", "loot", "victory", "complete", "result" }
-		local guiAt = -100
-		local pg = LP:FindFirstChildOfClass("PlayerGui") or LP:WaitForChild("PlayerGui", 5)
-		if pg then
-			track(pg.DescendantAdded:Connect(function(d)
-				if not (d:IsA("GuiObject") or d:IsA("LayerCollector")) then return end
-				local lname = string.lower(d.Name)
-				if string.find(lname, "milk", 1, true) then return end
-				for _, w in ipairs(GUI_WORDS) do
-					if string.find(lname, w, 1, true) then
-						local now = os.clock()
-						if now - guiAt > 2 then
-							guiAt = now
-							note("GUI popup: " .. d:GetFullName())
-							onPopup()
-						end
-						return
-					end
-				end
-			end))
+	------------------------------------------------------------ v5 claim + replay (one action per event, never spam, never fights your own clicks)
+	track(UIS.InputBegan:Connect(function(i)
+		local t = i.UserInputType
+		if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch or t == Enum.UserInputType.Keyboard then
+			lastUserInput = os.clock()
 		end
-	end
+	end))
+	local function userBusy() return os.clock() - lastUserInput < 3 end
 
-	------------------------------------------------------------ mode end -> claim burst + auto replay
-	local rep = { boss = nil, endedAt = nil, last = 0, modeAt = nil, popupSeen = -100, burstFor = nil, inMode = false, lastPos = nil, why = "idle" }
-	local function claimBurst()
-		for _, t in ipairs({ 0.3, 1, 2, 3.5 }) do
-			task.delay(t, function()
-				if running and cfg.AutoClaim and L.claim then claimNow() end
-			end)
+	local LEAVE_WORDS = { "leave", "exit", "lobby", "return", "quit", "back", "home", "close", "ออก", "กลับ", "ปิด" }
+	local REPLAY_WORDS = { "replay", "retry", "again", "rematch", "restart", "play again", "เล่นอีก", "ลองใหม่", "เริ่มใหม่", "อีกครั้ง" }
+	local CLAIM_WORDS = { "claim", "collect", "take", "get", "ok", "okay", "confirm", "receive", "รับ", "เก็บ", "ตกลง" }
+	local POPUP_WORDS = { "reward", "popup", "loot", "itemget", "drop" }
+	local END_WORDS = { "result", "victory", "complete", "clear", "defeat", "finish", "summary" }
+
+	local function hasWord(t, list)
+		for _, w in ipairs(list) do
+			if string.find(t, w, 1, true) then return true end
 		end
+		return false
 	end
-
-	-- mode just started: the latest remote you fired in the 8 s before it = entry remote
-	local function learnEntry(why)
-		local now = os.clock()
-		for i = #recentCalls, 1, -1 do
-			local c = recentCalls[i]
-			if now - c.t <= 8 and c.remote and c.remote.Parent then
-				L.ENTRY_AUTO = { remote = c.remote, method = c.method, args = c.args }
-				L.lastEntry = "ENTRY_AUTO"
-				L.entryName = c.name
-				note("learned ENTRY " .. c.name .. " (" .. why .. ") " .. ser(c.args))
-				return
-			end
-		end
-	end
-
-	-- fallback: the game's own replay / retry button, fired through its connections (no mouse click)
-	local REPLAY_WORDS = { "replay", "retry", "again", "rematch", "restart", "next", "continue", "เล่นอีก", "ลองใหม่", "เริ่มใหม่", "ต่อไป" }
-	local REPLAY_BLOCK = { "egg", "hatch", "buy", "robux", "ไข่", "ซื้อ", "milk" }
 	local function shown(g)
 		if g.AbsoluteSize.X < 3 then return false end
 		local o = g
@@ -1267,74 +1241,138 @@ local milkOk, milkErr = xpcall(function()
 		end
 		return o ~= nil and not (o:IsA("ScreenGui") and not o.Enabled)
 	end
-	local function fireReplayButton()
+	local function btnText(b)
+		local t = string.lower(b.Name .. " " .. (b:IsA("TextButton") and b.Text or ""))
+		for _, c in ipairs(b:GetDescendants()) do
+			if c:IsA("TextLabel") then t = t .. " " .. string.lower(c.Text) end
+		end
+		return t
+	end
+	-- runs the game's own handler for a button (no mouse click). fires ONE signal only so a toggle never flips back
+	local function pressButton(b)
 		if not getconnections then return false end
-		local pg = LP:FindFirstChildOfClass("PlayerGui")
-		if not pg then return false end
-		for _, b in ipairs(pg:GetDescendants()) do
-			if b:IsA("GuiButton") and shown(b) then
-				local t = string.lower(b.Name .. " " .. (b:IsA("TextButton") and b.Text or ""))
-				for _, c in ipairs(b:GetChildren()) do if c:IsA("TextLabel") then t = t .. " " .. string.lower(c.Text) end end
-				local bad = false
-				for _, w in ipairs(REPLAY_BLOCK) do if string.find(t, w, 1, true) then bad = true break end end
-				if not bad then
-					for _, w in ipairs(REPLAY_WORDS) do
-						if string.find(t, w, 1, true) then
-							local fired = false
-							for _, sig in ipairs({ b.Activated, b.MouseButton1Click, b.MouseButton1Down }) do
-								local ok, list = pcall(getconnections, sig)
-								if ok and list then
-									for _, cn in ipairs(list) do if pcall(function() cn:Fire() end) then fired = true end end
-								end
-								if fired then break end
-							end
-							if fired then
-								note("replay button: " .. b:GetFullName())
-								return true
-							end
-						end
-					end
+		for _, sig in ipairs({ b.Activated, b.MouseButton1Click, b.MouseButton1Down }) do
+			local ok, list = pcall(getconnections, sig)
+			if ok and list and #list > 0 then
+				local fired = false
+				for _, cn in ipairs(list) do
+					if pcall(function() cn:Fire() end) then fired = true end
 				end
+				if fired then return true end
 			end
 		end
 		return false
 	end
-
-	local function doReplay()
-		if L.lastEntry and replay(L.lastEntry) then return "remote " .. tostring(L.entryName or L.lastEntry) end
-		if fireReplayButton() then return "button" end
-		return nil
+	local function findButton(rootGui, want, avoid)
+		if not rootGui then return nil end
+		for _, b in ipairs(rootGui:GetDescendants()) do
+			if b:IsA("GuiButton") and shown(b) and not string.find(b:GetFullName(), "MilkHatch", 1, true) then
+				local t = btnText(b)
+				if hasWord(t, want) and not hasWord(t, avoid) then return b, t end
+			end
+		end
 	end
+
+	---------------- claim
+	local popupGui, claimedFor = nil, nil
+	local function autoClaim(src)
+		if not cfg.AutoClaim or userBusy() then return end
+		if claimedFor == popupAt then return end
+		claimedFor = popupAt
+		-- 1) a learned claim remote (Learn Claim button)
+		if L.claim and claimNow() then
+			status = "claimed via remote " .. tostring(L.claim.name)
+			return
+		end
+		-- 2) the popup's own claim button (game handler, not a click)
+		local pg = LP:FindFirstChildOfClass("PlayerGui")
+		local b = findButton(popupGui, CLAIM_WORDS, REPLAY_WORDS) or findButton(popupGui, { "" }, LEAVE_WORDS)
+		if not b and pg then b = findButton(pg, { "claim", "collect", "รับ", "เก็บ" }, REPLAY_WORDS) end
+		if b and pressButton(b) then
+			stat.claims = stat.claims + 1
+			status = "claimed via button " .. b.Name
+			note("claim button: " .. b:GetFullName() .. " (" .. src .. ")")
+		else
+			status = "popup: no claim button found - use Learn Claim"
+		end
+	end
+	env.MilkHatch_AutoClaim = autoClaim
+
+	---------------- replay state
+	local rep = { boss = nil, endedAt = nil, endId = 0, doneId = -1, tries = 0, inMode = false, lastPos = nil, why = "idle", endGuiAt = -100, endGui = nil }
 
 	local function modeStart(why)
 		if rep.inMode then return end
-		rep.inMode, rep.modeAt, rep.endedAt = true, os.clock(), nil
+		rep.inMode, rep.endedAt = true, nil
 		note("mode start (" .. why .. ")")
-		learnEntry(why)
 	end
 	local function modeEnd(why)
-		if not rep.inMode then return end
-		rep.inMode, rep.endedAt, rep.boss = false, os.clock(), nil
+		if not rep.inMode and rep.endedAt then return end
+		rep.inMode, rep.boss = false, nil
+		rep.endedAt = os.clock()
+		rep.endId = rep.endId + 1
+		rep.tries = 0
 		note("mode end (" .. why .. ")")
 	end
 
+	do -- watch the gui for reward popups and end screens
+		local pg = LP:FindFirstChildOfClass("PlayerGui") or LP:WaitForChild("PlayerGui", 5)
+		if pg then
+			track(pg.DescendantAdded:Connect(function(d)
+				if not (d:IsA("GuiObject") or d:IsA("LayerCollector")) then return end
+				local lname = string.lower(d.Name)
+				if hasWord(lname, POPUP_WORDS) then
+					if os.clock() - popupAt > 2 then
+						popupGui = d
+						popupAt = os.clock()
+						stat.popups = stat.popups + 1
+						note("GUI popup: " .. d:GetFullName())
+						task.delay(cfg.ClaimDelay + 0.5, function() if running then autoClaim("gui") end end)
+					end
+				elseif hasWord(lname, END_WORDS) and os.clock() - rep.endGuiAt > 3 then
+					rep.endGuiAt, rep.endGui = os.clock(), d
+					note("GUI end screen: " .. d:GetFullName())
+				end
+			end))
+		end
+	end
+
+	local function doReplay()
+		local pg = LP:FindFirstChildOfClass("PlayerGui")
+		-- 1) the end screen's replay button (exactly what you would press)
+		local b = findButton(rep.endGui, REPLAY_WORDS, LEAVE_WORDS) or findButton(pg, REPLAY_WORDS, LEAVE_WORDS)
+		if b and pressButton(b) then
+			note("replay button: " .. b:GetFullName())
+			return "button " .. b.Name
+		end
+		-- 2) the call you taught with Learn Replay
+		local c = L.replayCall
+		if c and c.remote and c.remote.Parent then
+			local a = c.args
+			task.spawn(function()
+				pcall(function()
+					if c.method == "FireServer" then c.remote:FireServer(table.unpack(a, 1, a.n))
+					else c.remote:InvokeServer(table.unpack(a, 1, a.n)) end
+				end)
+			end)
+			return "remote " .. c.name
+		end
+		return nil
+	end
+
 	task.spawn(function()
+		local seenPopup = -100
 		while running do
 			local now = os.clock()
 			local _, hrp = getChar()
 			if hrp then
 				local pos = hrp.Position
-				-- big position jump = warped into / out of a mode
 				if rep.lastPos and (pos - rep.lastPos).Magnitude > 400 and now - D.lastDodge > 1 then
-					if rep.inMode and now - rep.modeAt > 5 then modeEnd("warp out") else modeStart("warp in") end
+					if rep.inMode then modeEnd("warp out") else modeStart("warp in") end
 				end
 				rep.lastPos = pos
-				-- boss tracking
 				if rep.boss then
-					if not rep.boss.Parent or (rep.boss:GetAttribute("HP") or 0) <= 0 then
-						rep.boss = nil
-						modeEnd("boss dead")
-					end
+					if not rep.boss.Parent or (rep.boss:GetAttribute("HP") or 0) <= 0 then modeEnd("boss dead") end
 				else
 					local e, d = nearestEnemy(pos)
 					if e and d <= 250 and e:GetAttribute("Mob") ~= true then
@@ -1346,35 +1384,35 @@ local milkOk, milkErr = xpcall(function()
 				rep.lastPos = nil
 			end
 			if OB.n > 0 then modeStart("obito") end
-			if popupAt > rep.popupSeen then
-				rep.popupSeen = popupAt
-				if rep.inMode then modeEnd("reward popup") end
-			end
-			if rep.endedAt and rep.burstFor ~= rep.endedAt then
-				rep.burstFor = rep.endedAt
-				if cfg.AutoClaim then claimBurst() end
-			end
+			if rep.inMode and popupAt > seenPopup then modeEnd("reward popup") end
+			seenPopup = popupAt
+			if rep.inMode and now - rep.endGuiAt < 1 then modeEnd("end screen") end
+
 			if rep.endedAt then
-				local wait_ = cfg.ReplayDelay + (cfg.AutoClaim and cfg.ClaimDelay or 0)
+				local since = now - rep.endedAt
+				local wait_ = cfg.ReplayDelay + (cfg.AutoClaim and (cfg.ClaimDelay + 1) or 0)
 				if not cfg.AutoReplay then
 					rep.why = "mode ended (auto replay off)"
-					if now - rep.endedAt > 15 then rep.endedAt = nil end
-				elseif now - rep.endedAt < wait_ then
-					rep.why = string.format("replay in %.1f s", wait_ - (now - rep.endedAt))
-				elseif now - rep.last > 4 then
+				elseif userBusy() then
+					rep.why = "you are pressing things - replay paused"
+				elseif rep.tries == 0 and since >= wait_ then
+					rep.tries = 1
 					local how = doReplay()
-					rep.last = now
 					if how then
 						stat.replays = stat.replays + 1
 						rep.why = "replay #" .. stat.replays .. " via " .. how
-						status = rep.why
-						rep.endedAt = nil
 					else
-						rep.why = "no entry remote / no replay button - enter a mode by hand once"
-						status = rep.why
-						if now - rep.endedAt > 30 then rep.endedAt = nil end
+						rep.why = "no replay button / not learned - use Learn Replay"
 					end
+					status = rep.why
+				elseif rep.tries == 1 and since >= wait_ + 20 and not rep.inMode then
+					rep.tries = 2   -- one retry if nothing happened in 20 s
+					local how = doReplay()
+					rep.why = how and ("replay retry via " .. how) or rep.why
+				elseif since < wait_ then
+					rep.why = string.format("replay in %.1f s", wait_ - since)
 				end
+				if since > 60 then rep.endedAt = nil end
 			else
 				rep.why = rep.inMode and "in mode" or "waiting for a mode"
 			end
@@ -1534,20 +1572,31 @@ local milkOk, milkErr = xpcall(function()
 	cycle("Dodge Distance", "MinDodge", DISTS, "+ studs")
 
 	section("REPLAY + REWARD")
-	toggle("Auto Replay (re-enter last mode)", "AutoReplay")
+	toggle("Auto Replay", "AutoReplay")
 	cycle("Replay Delay", "ReplayDelay", RDELAYS, " s")
+	toggle("Auto Claim Reward Popup", "AutoClaim")
+	cycle("Claim Delay", "ClaimDelay", CDELAYS, " s")
+	local bl = btn("Learn Replay (then press the game's Replay)")
+	track(bl.MouseButton1Click:Connect(function()
+		armClaimUntil, armReplayUntil = 0, os.clock() + 30
+		status = "armed 30s: press the game's Replay button now"
+	end))
+	local bc = btn("Learn Claim (then claim the popup by hand)")
+	track(bc.MouseButton1Click:Connect(function()
+		armReplayUntil, armClaimUntil = 0, os.clock() + 30
+		status = "armed 30s: claim the reward by hand now"
+	end))
 	local br = btn("Replay Now (test)")
 	track(br.MouseButton1Click:Connect(function()
-		local how = doReplay()
-		status = how and ("replayed via " .. how) or "nothing learned yet - enter a mode by hand"
+		task.delay(0.2, function()
+			local how = doReplay()
+			status = how and ("replayed via " .. how) or "nothing to press / not learned"
+		end)
 	end))
-	toggle("Auto Claim Reward Popup (remote)", "AutoClaim")
-	cycle("Claim Delay", "ClaimDelay", CDELAYS, " s")
-	local bc = btn("Learn Claim Remote (then claim by hand)")
-	track(bc.MouseButton1Click:Connect(function()
-		armClaimUntil = os.clock() + 20
-		L.claim = nil
-		status = "armed 20s: claim the reward by hand now"
+	local bf = btn("Forget Replay + Claim")
+	track(bf.MouseButton1Click:Connect(function()
+		L.replayCall, L.claim = nil, nil
+		status = "replay + claim forgotten"
 	end))
 
 	section("OBITO MODE")
@@ -1633,7 +1682,7 @@ local milkOk, milkErr = xpcall(function()
 				"combat      : " .. (D.combat and "yes" or "no"),
 				"hazards     : " .. D.hazN,
 				"dodges      : " .. D.dodges .. "   floats: " .. D.floats,
-				"entry remote: " .. tostring(L.entryName or L.lastEntry or "not learned"),
+				"replay call : " .. (L.replayCall and L.replayCall.name or "button only"),
 				"replay      : " .. rep.why,
 				"replays     : " .. stat.replays,
 				"claim remote: " .. (L.claim and L.claim.name or "not learned") .. "   popups " .. stat.popups .. "  claims " .. stat.claims,
