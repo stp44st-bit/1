@@ -1,0 +1,1665 @@
+--// milk :: Anime Hunting Egg  |  hatch hub
+--// auto hatch (learns the egg remote from one manual hatch) + auto sell + forest collect + egg stand esp + anti afk
+--// auto dodge + auto replay + auto claim reward popup (remote) + obito mode helper
+--// Insert = hide/show window
+
+-- error catcher: if anything breaks on load, the reason shows on screen, in the console and in milk_ahe_error.txt
+local function milkFail(err)
+	local msg = "milk AHE load error:\n" .. tostring(err) .. "\n" .. ((debug and debug.traceback) and debug.traceback() or "")
+	warn(msg)
+	pcall(function() if writefile then writefile("milk_ahe_error.txt", msg) end end)
+	pcall(function() if setclipboard then setclipboard(msg) end end)
+	pcall(function()
+		local g = Instance.new("ScreenGui")
+		g.Name = "MilkError"
+		g.ResetOnSpawn = false
+		g.DisplayOrder = 1000
+		local t = Instance.new("TextLabel")
+		t.Size = UDim2.fromOffset(520, 160)
+		t.Position = UDim2.new(0.5, -260, 0, 60)
+		t.BackgroundColor3 = Color3.fromRGB(60, 20, 24)
+		t.TextColor3 = Color3.fromRGB(255, 220, 220)
+		t.Font = Enum.Font.Code
+		t.TextSize = 13
+		t.TextWrapped = true
+		t.TextXAlignment = Enum.TextXAlignment.Left
+		t.TextYAlignment = Enum.TextYAlignment.Top
+		t.Text = string.sub(msg, 1, 900)
+		t.Parent = g
+		local ok = pcall(function() g.Parent = (gethui and gethui()) or game:GetService("CoreGui") end)
+		if not ok or not g.Parent then g.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui") end
+		task.delay(25, function() g:Destroy() end)
+	end)
+	return msg
+end
+
+local milkOk, milkErr = xpcall(function()
+
+	local env = (getgenv and getgenv()) or _G
+	if env.MilkHatch_Unload then pcall(env.MilkHatch_Unload) end
+
+	local cloneref = cloneref or function(o) return o end
+	local function S(n) return cloneref(game:GetService(n)) end
+	local Players = S("Players")
+	local UIS = S("UserInputService")
+	local Workspace = S("Workspace")
+	local Http = S("HttpService")
+	local RS = S("ReplicatedStorage")
+	local VU = S("VirtualUser")
+	local LP = Players.LocalPlayer
+
+	------------------------------------------------------------ lifecycle
+	local running = true
+	local conns = {}
+	local function track(c) conns[#conns + 1] = c return c end
+
+	local cfg = {
+		Hatch = false, HatchDelay = 0.4, Stand = 1, TpStand = true,
+		Sell = false, SellEvery = 15, SellTp = false,
+		Collect = false, CollectReturn = true,
+		ESP = true, AntiAfk = true, Spy = false,
+		Dodge = true, AnimDodge = true, WaveFloat = true, ReturnBack = true, ShowHazards = false,
+		Margin = 4, MinDodge = 15,
+		AutoReplay = false, ReplayDelay = 2, AutoClaim = true, ClaimDelay = 0.3,
+		Obito = false,
+	}
+	local MARGINS = { 2, 4, 6, 8, 10 }
+	local DISTS = { 10, 15, 20, 30, 40, 55 }
+	local adorn   -- hazard box folder, created with the ui
+	local RDELAYS = { 1, 2, 3, 5, 8 }
+	local CDELAYS = { 0, 0.3, 0.6, 1, 2 }
+	local DELAYS = { 0.1, 0.2, 0.4, 0.8, 1.5, 3 }
+	local SELLS = { 5, 10, 15, 30, 60 }
+
+	local L = env.MilkHatch_L or {}   -- learned remote calls, survives re-execute
+	env.MilkHatch_L = L
+	local stat = { hatched = 0, sold = 0, collected = 0, popups = 0, claims = 0, replays = 0, obGrab = 0, obDeliver = 0 }
+	local status = "idle"
+	local notes, spyLog = {}, {}
+
+	local function note(s)
+		notes[#notes + 1] = string.format("[%s] %s", os.date("%H:%M:%S"), s)
+		if #notes > 200 then table.remove(notes, 1) end
+	end
+
+	local function ser(v, d)
+		d = d or 0
+		local t = typeof(v)
+		if t == "table" then
+			if d >= 2 then return "{..}" end
+			local out, n = {}, 0
+			for k, x in pairs(v) do
+				n = n + 1
+				if n > 10 then out[#out + 1] = "..." break end
+				out[#out + 1] = tostring(k) .. "=" .. ser(x, d + 1)
+			end
+			return "{" .. table.concat(out, ", ") .. "}"
+		elseif t == "Instance" then
+			local ok, fn = pcall(v.GetFullName, v)
+			return ok and fn or "<inst>"
+		elseif t == "string" then
+			return string.format("%q", v)
+		end
+		return tostring(v)
+	end
+
+	------------------------------------------------------------ helpers
+	local function mk(class, props, parent)
+		local o = Instance.new(class)
+		for k, v in pairs(props) do o[k] = v end
+		o.Parent = parent
+		return o
+	end
+
+	local function getChar()
+		local c = LP.Character
+		if not c then return end
+		local hrp = c:FindFirstChild("HumanoidRootPart")
+		local hum = c:FindFirstChildOfClass("Humanoid")
+		if hrp and hum and hum.Health > 0 then return c, hrp, hum end
+	end
+
+	local function tp(pos)
+		local _, hrp = getChar()
+		if not hrp then return false end
+		hrp.CFrame = CFrame.new(pos) * hrp.CFrame.Rotation
+		hrp.AssemblyLinearVelocity = Vector3.zero
+		return true
+	end
+
+	local function posOf(inst)
+		if inst:IsA("BasePart") then return inst.Position end
+		if inst:IsA("Model") then
+			local ok, cf = pcall(inst.GetPivot, inst)
+			if ok then return cf.Position end
+		end
+		local p = inst:FindFirstChildWhichIsA("BasePart", true)
+		return p and p.Position
+	end
+
+	local function flat(a, b)
+		local dx, dz = a.X - b.X, a.Z - b.Z
+		return math.sqrt(dx * dx + dz * dz)
+	end
+
+	local function stands()
+		local f = Workspace:FindFirstChild("EggStands")
+		local list = {}
+		if f then
+			for _, m in ipairs(f:GetChildren()) do
+				if type(m:GetAttribute("BaseId")) == "number" then list[#list + 1] = m end
+			end
+		end
+		table.sort(list, function(a, b) return a:GetAttribute("BaseId") < b:GetAttribute("BaseId") end)
+		return list
+	end
+
+	local function standGround(m)
+		local g = m:GetAttribute("Ground")
+		if typeof(g) == "Vector3" then return g end
+		return posOf(m)
+	end
+
+	local function nearestStand()
+		local _, hrp = getChar()
+		if not hrp then return end
+		local best, bd
+		for _, m in ipairs(stands()) do
+			local g = standGround(m)
+			if g then
+				local d = (g - hrp.Position).Magnitude
+				if not bd or d < bd then best, bd = m, d end
+			end
+		end
+		return best
+	end
+
+	local function standLabel(m)
+		if not m then return "none" end
+		return string.format("#%d %s ($%s)", m:GetAttribute("BaseId"), tostring(m:GetAttribute("EggName") or m.Name), tostring(m:GetAttribute("Price") or "?"))
+	end
+
+	------------------------------------------------------------ remote learner (one shared __namecall hook)
+	local WATCH = { AHE_EggStand = true, AHE_EggOpen = true, AHE_EggHatch = true, AHE_InfinityEggs = true, AHE_Sell = true, AHE_ForestItems = true }
+	local EGG = { AHE_EggStand = true, AHE_EggOpen = true, AHE_EggHatch = true }
+	-- remotes the game uses to enter a mode / room (the last one you used by hand is replayed by Auto Replay)
+	local ENTRY = { AHE_BossRoom = true, AHE_ScrollBoss = true, AHE_Tower = true, AHE_Challenge = true, AHE_Guardian = true, AHE_SukunaWarp = true, AHE_RaidPlace = true }
+	for k in pairs(ENTRY) do WATCH[k] = true end
+	WATCH.AHE_Obito = true
+	WATCH.AHE_Kamui = true
+	local NOISE = {}
+	for _, n in ipairs({ "ReplicateHook", "ReplicateVFX", "ReplicateAudio", "AHE_HitLog", "AHE_Follow", "AHE_Skill", "AHE_Swap", "AHE_Stat", "AHE_CutsceneSkip",
+		"AHE_Mount", "AHE_AfkMode", "AHE_Settings", "AHE_Display", "AHE_Weapon", "AHE_WeaponTrain", "AHE_PetFight", "AHE_Aura", "AHE_Emote",
+		"AHE_Loadout", "AHE_Profile", "AHE_Gear", "AHE_StandSkill", "AHE_Hiraishin", "AHE_Revive", "AHE_Adapt", "AHE_Units", "AHE_Station", "AHE_Potion",
+		"AHE_Party", "AHE_Clash", "AHE_ClashDuel", "AHE_SkyDev", "AHE_Tutorial", "AHE_Title", "AHE_Offline", "AHE_RespawnMe" }) do NOISE[n] = true end
+	local lastSpy = {}
+	local recentCalls = {}     -- last remotes you fired; the one right before a mode starts = entry remote
+	local NOT_ENTRY = { AHE_EggStand = true, AHE_EggOpen = true, AHE_EggHatch = true, AHE_Sell = true, AHE_ForestItems = true, AHE_InfinityEggs = true,
+		AHE_RewardPopup = true, AHE_Obito = true, AHE_Kamui = true, AHE_Inventory = true, AHE_Quest = true, AHE_Index = true, AHE_Trait = true, AHE_Evo = true }
+	local armClaimUntil = 0   -- while armed, the next non-noise remote you fire becomes the reward-claim remote
+	local popupAt, popupArgs = -100, nil
+
+	env.MilkHatch_On = true
+	env.MilkHatch_Cap = function(remote, method, nm, args)
+		if armClaimUntil > os.clock() and not NOISE[nm] and not WATCH[nm] and nm ~= "AHE_RewardPopup" then
+			armClaimUntil = 0
+			L.claim = { remote = remote, method = method, args = args, popup = popupArgs, name = nm }
+			note("learned CLAIM " .. nm .. " " .. ser(args))
+		end
+		if not NOISE[nm] and not NOT_ENTRY[nm] and not (L.claim and L.claim.remote == remote) then
+			recentCalls[#recentCalls + 1] = { remote = remote, method = method, args = args, name = nm, t = os.clock() }
+			if #recentCalls > 30 then table.remove(recentCalls, 1) end
+		end
+		if WATCH[nm] then
+			local near = nearestStand()
+			L[nm] = {
+				remote = remote, method = method, args = args,
+				stand = near and { inst = near, id = near:GetAttribute("BaseId"), egg = near:GetAttribute("Egg"), name = near:GetAttribute("EggName") } or nil,
+			}
+			if EGG[nm] then L.lastEgg = nm end
+			if ENTRY[nm] then L.lastEntry = nm L.entryName = nm end
+			note("learned " .. nm .. " " .. ser(args))
+		end
+		if cfg.Spy and not NOISE[nm] then
+			local now = os.clock()
+			if not lastSpy[nm] or now - lastSpy[nm] > 0.4 then
+				lastSpy[nm] = now
+				local out = {}
+				for i = 1, math.min(args.n, 8) do out[#out + 1] = ser(args[i]) end
+				spyLog[#spyLog + 1] = string.format("[%8.2f] %s:%s(%s)", now, nm, method, table.concat(out, ", "))
+				if #spyLog > 600 then table.remove(spyLog, 1) end
+			end
+		end
+	end
+
+	if hookmetamethod and getnamecallmethod and not env.MilkHatch_Hooked then
+		local old
+		local function h(self, ...)
+			local m = getnamecallmethod()
+			if (m == "FireServer" or m == "InvokeServer") and env.MilkHatch_On and env.MilkHatch_Cap
+				and not (checkcaller and checkcaller()) then
+				local ok, nm = pcall(function() return self.Name end)
+				if ok then pcall(env.MilkHatch_Cap, self, m, nm, table.pack(...)) end
+			end
+			return old(self, ...)
+		end
+		local okH, errH = pcall(function()
+			old = hookmetamethod(game, "__namecall", newcclosure and newcclosure(h) or h)
+		end)
+		if okH and old then env.MilkHatch_Hooked = true else note("hook failed: " .. tostring(errH)) end
+	end
+
+	-- replay a learned call; swaps the stand id / egg name / stand instance for the selected stand
+	local function replay(nm, st)
+		local l = L[nm]
+		if not l or not l.remote or not l.remote.Parent then return false end
+		local a = table.pack(table.unpack(l.args, 1, l.args.n))
+		if st and l.stand then
+			local id, egg, name = st:GetAttribute("BaseId"), st:GetAttribute("Egg"), st:GetAttribute("EggName")
+			for i = 1, a.n do
+				local v = a[i]
+				if typeof(v) == "Instance" and v == l.stand.inst then
+					a[i] = st
+				elseif type(v) == "number" and v == l.stand.id then
+					a[i] = id
+				elseif type(v) == "string" then
+					if l.stand.egg and v == l.stand.egg and egg then a[i] = egg
+					elseif l.stand.name and v == l.stand.name and name then a[i] = name end
+				end
+			end
+		end
+		task.spawn(function()
+			pcall(function()
+				if l.method == "FireServer" then
+					l.remote:FireServer(table.unpack(a, 1, a.n))
+				else
+					l.remote:InvokeServer(table.unpack(a, 1, a.n))
+				end
+			end)
+		end)
+		return true
+	end
+
+	-- replay a learned call with the first world instance argument swapped for `inst`
+	local function replaySwap(nm, inst)
+		local l = L[nm]
+		if not l or not l.remote or not l.remote.Parent then return false end
+		local a = table.pack(table.unpack(l.args, 1, l.args.n))
+		local ch = LP.Character
+		for i = 1, a.n do
+			local v = a[i]
+			if typeof(v) == "Instance" and not (ch and (v == ch or v:IsDescendantOf(ch))) and (not v.Parent or v:IsDescendantOf(Workspace)) then
+				a[i] = inst
+				break
+			end
+		end
+		task.spawn(function()
+			pcall(function()
+				if l.method == "FireServer" then l.remote:FireServer(table.unpack(a, 1, a.n))
+				else l.remote:InvokeServer(table.unpack(a, 1, a.n)) end
+			end)
+		end)
+		return true
+	end
+
+	------------------------------------------------------------ reward popup -> claim by remote (no gui click)
+	local lastClaim = 0
+	local function claimNow()
+		local c = L.claim
+		if not c or not c.remote or not c.remote.Parent then return false end
+		if os.clock() - lastClaim < 0.6 then return false end
+		lastClaim = os.clock()
+		local a = table.pack(table.unpack(c.args, 1, c.args.n))
+		-- args that came straight from the popup event are swapped for the current popup's values
+		if c.popup and popupArgs then
+			for i = 1, a.n do
+				for j = 1, c.popup.n do
+					if a[i] ~= nil and a[i] == c.popup[j] and popupArgs[j] ~= nil then
+						a[i] = popupArgs[j]
+						break
+					end
+				end
+			end
+		end
+		task.spawn(function()
+			pcall(function()
+				if c.method == "FireServer" then c.remote:FireServer(table.unpack(a, 1, a.n))
+				else c.remote:InvokeServer(table.unpack(a, 1, a.n)) end
+			end)
+		end)
+		stat.claims = stat.claims + 1
+		return true
+	end
+
+	local function onPopup(...)
+		popupAt = os.clock()
+		popupArgs = table.pack(...)
+		stat.popups = stat.popups + 1
+		local out = {}
+		for i = 1, math.min(popupArgs.n, 6) do out[#out + 1] = ser(popupArgs[i]) end
+		note("POPUP " .. table.concat(out, " | "))
+		if not L.claim then armClaimUntil = os.clock() + 10 end   -- first time: next remote you fire = claim remote
+		if cfg.AutoClaim then
+			task.delay(cfg.ClaimDelay, function()
+				if running and cfg.AutoClaim and L.claim then claimNow() end
+			end)
+		end
+	end
+
+	do -- server -> client events worth logging while you learn how the modes flow
+		local LOGGED = { "AHE_Obito", "AHE_Kamui", "AHE_RaidPlace", "AHE_Challenge", "AHE_Tower", "AHE_BossRoom", "AHE_ScrollBoss", "AHE_Guardian", "AHE_SukunaWarp" }
+		local seen = {}
+		for _, nm in ipairs(LOGGED) do
+			local ev = RS:FindFirstChild(nm, true)
+			if ev and (ev:IsA("RemoteEvent") or ev:IsA("UnreliableRemoteEvent")) then
+				track(ev.OnClientEvent:Connect(function(...)
+					local now = os.clock()
+					if seen[nm] and now - seen[nm] < 0.5 then return end
+					seen[nm] = now
+					local a = table.pack(...)
+					local out = {}
+					for i = 1, math.min(a.n, 6) do out[#out + 1] = ser(a[i]) end
+					note("EVT " .. nm .. " " .. table.concat(out, " | "))
+				end))
+			end
+		end
+		local pop = RS:FindFirstChild("AHE_RewardPopup", true)
+		if pop and (pop:IsA("RemoteEvent") or pop:IsA("UnreliableRemoteEvent")) then
+			track(pop.OnClientEvent:Connect(onPopup))
+		else
+			note("AHE_RewardPopup not found")
+		end
+	end
+
+	------------------------------------------------------------ auto hatch
+	local function goStand(st)
+		local _, hrp = getChar()
+		local g = st and standGround(st)
+		if not hrp or not g then return end
+		local range = st:GetAttribute("Range") or 14
+		if flat(hrp.Position, g) > range * 0.6 or math.abs(hrp.Position.Y - g.Y) > 12 then
+			tp(g + Vector3.new(0, 3.5, 0))
+		end
+	end
+
+	task.spawn(function()
+		while running do
+			if cfg.Hatch then
+				local nm = L.lastEgg
+				if not nm then
+					status = "hatch 1 egg by hand to learn"
+				else
+					local st = stands()[cfg.Stand]
+					if st and cfg.TpStand then goStand(st) end
+					if replay(nm, st) then
+						stat.hatched = stat.hatched + 1
+						status = "hatching via " .. nm
+					else
+						status = "remote gone - hatch by hand again"
+						L[nm] = nil
+						L.lastEgg = nil
+					end
+				end
+			end
+			task.wait(cfg.HatchDelay)
+		end
+	end)
+
+	------------------------------------------------------------ auto sell
+	task.spawn(function()
+		while running do
+			if cfg.Sell and L.AHE_Sell then
+				local zone = Workspace:FindFirstChild("AHE_SellZone")
+				local _, hrp = getChar()
+				local back
+				if cfg.SellTp and zone and hrp then
+					back = hrp.CFrame
+					local p = posOf(zone)
+					if p then tp(p + Vector3.new(0, 4, 0)) task.wait(0.3) end
+				end
+				if replay("AHE_Sell") then stat.sold = stat.sold + 1 end
+				if back then
+					task.wait(0.35)
+					local _, h2 = getChar()
+					if h2 then h2.CFrame = back end
+				end
+			elseif cfg.Sell then
+				status = "sell by hand once to learn"
+			end
+			task.wait(cfg.Sell and cfg.SellEvery or 0.5)
+		end
+	end)
+
+	------------------------------------------------------------ forest collect
+	local function swapItem(it)
+		local l = L.AHE_ForestItems
+		if not l or not l.remote or not l.remote.Parent then return false end
+		local a = table.pack(table.unpack(l.args, 1, l.args.n))
+		local drops = Workspace:FindFirstChild("AHE_ForestDrops")
+		for i = 1, a.n do
+			local v = a[i]
+			if typeof(v) == "Instance" and drops and (v.Parent == drops or not v.Parent) then a[i] = it end
+		end
+		task.spawn(function()
+			pcall(function()
+				if l.method == "FireServer" then l.remote:FireServer(table.unpack(a, 1, a.n))
+				else l.remote:InvokeServer(table.unpack(a, 1, a.n)) end
+			end)
+		end)
+		return true
+	end
+
+	local skip = setmetatable({}, { __mode = "k" })
+	local function collectOne(it)
+		local p = posOf(it)
+		if not p or not tp(p + Vector3.new(0, 3, 0)) then return false end
+		task.wait(0.15)
+		local t0, usedRemote = os.clock(), false
+		while it.Parent and os.clock() - t0 < 2.5 and running and cfg.Collect do
+			local _, hrp = getChar()
+			local pr = it:FindFirstChildWhichIsA("ProximityPrompt", true)
+			if pr then
+				pcall(function() pr.HoldDuration = 0 end)
+				pcall(function() pr.RequiresLineOfSight = false end)
+				if fireproximityprompt then pcall(fireproximityprompt, pr) end
+			end
+			local ti = it:FindFirstChild("TouchInterest", true)
+			if ti and ti.Parent and hrp and firetouchinterest then
+				pcall(firetouchinterest, hrp, ti.Parent, 0)
+				task.wait()
+				pcall(firetouchinterest, hrp, ti.Parent, 1)
+			end
+			if not pr and not ti and not usedRemote then usedRemote = swapItem(it) end
+			local pp = posOf(it)
+			if hrp and pp then hrp.CFrame = CFrame.new(pp + Vector3.new(0, 2, 0)) * hrp.CFrame.Rotation end
+			task.wait(0.15)
+		end
+		if not it.Parent then
+			stat.collected = stat.collected + 1
+			return true
+		end
+		skip[it] = os.clock() + 20
+		return false
+	end
+
+	task.spawn(function()
+		local home
+		while running do
+			local drops = Workspace:FindFirstChild("AHE_ForestDrops")
+			local _, hrp = getChar()
+			if cfg.Collect and drops and hrp then
+				local best, bd
+				for _, it in ipairs(drops:GetChildren()) do
+					if not skip[it] or skip[it] < os.clock() then
+						local p = posOf(it)
+						if p then
+							local d = (p - hrp.Position).Magnitude
+							if not bd or d < bd then best, bd = it, d end
+						end
+					end
+				end
+				if best then
+					home = home or hrp.CFrame
+					status = "collecting " .. best.Name
+					collectOne(best)
+				else
+					if home and cfg.CollectReturn then
+						local _, h2 = getChar()
+						if h2 then h2.CFrame = home end
+					end
+					home = nil
+					task.wait(0.5)
+				end
+			else
+				home = nil
+				task.wait(0.4)
+			end
+		end
+	end)
+
+	------------------------------------------------------------ anti afk
+	track(LP.Idled:Connect(function()
+		if not cfg.AntiAfk then return end
+		pcall(function()
+			VU:CaptureController()
+			VU:ClickButton2(Vector2.new())
+		end)
+	end))
+
+	------------------------------------------------------------ auto dodge
+	local RunService = S("RunService")
+	local D = {
+		enemies = {}, pts = {}, haz = {}, hazN = 0, zones = {},
+		origin = nil, lastDodge = 0, safeSince = 0, dodges = 0, floats = 0,
+		lastHp = nil, lastHpDodge = 0, float = nil, combat = false,
+		lastFloor = nil, floorAt = 0, arenas = {}, arenaAt = -100,
+	}
+	local WAVE_WORDS = { "wave", "shock", "ring", "nova", "pulse", "ripple", "360", "quake", "stomp" }
+	local ANIM_SKIP = { "idle", "walk", "run", "move", "death", "die", "dead", "hurt", "stun", "spawn", "intro", "pose", "breath" }
+	local ANIM_ATTACK = { "attack", "skill", "slam", "swing", "cast", "ult", "combo", "smash", "bite", "claw", "strike", "roar", "charge" }
+	local animHooked = setmetatable({}, { __mode = "k" })
+	local DIRS = {}
+	for k = 0, 15 do
+		local a = k * math.pi / 8
+		DIRS[#DIRS + 1] = Vector3.new(math.cos(a), 0, math.sin(a))
+	end
+
+	local rp = RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Exclude
+	pcall(function() rp.RespectCanCollide = true end)
+	local exAt = -100
+	local function refreshExclude()
+		if os.clock() - exAt < 2 then return end
+		exAt = os.clock()
+		local ex = {}
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p.Character then ex[#ex + 1] = p.Character end
+		end
+		for _, n in ipairs({ "AHE_BossAttacks", "AHE_BossUnits", "AHE_Followers", "AHE_Companions", "AHE_Stands" }) do
+			local f = Workspace:FindFirstChild(n)
+			if f then ex[#ex + 1] = f end
+		end
+		if Workspace.CurrentCamera then ex[#ex + 1] = Workspace.CurrentCamera end
+		rp.FilterDescendantsInstances = ex
+	end
+
+	local function underEnemy(inst)
+		local o = inst.Parent
+		while o and o ~= Workspace do
+			if o:IsA("Model") and o:GetAttribute("MaxHP") ~= nil then return true end
+			o = o.Parent
+		end
+		return false
+	end
+
+	local function ground(x, y, z)
+		refreshExclude()
+		local hit = Workspace:Raycast(Vector3.new(x, y + 9, z), Vector3.new(0, -49, 0), rp)
+		if not hit or underEnemy(hit.Instance) then return nil end
+		return hit.Position
+	end
+
+	local function standOffset(hrp, hum)
+		if hum.RigType == Enum.HumanoidRigType.R15 then return hum.HipHeight + hrp.Size.Y / 2 end
+		return 3
+	end
+
+	local function floorY(hrp, hum)
+		local now = os.clock()
+		if now - D.floorAt > 0.25 and hum.FloorMaterial ~= Enum.Material.Air then
+			D.floorAt = now
+			local g = ground(hrp.Position.X, hrp.Position.Y - standOffset(hrp, hum), hrp.Position.Z)
+			if g then D.lastFloor = g.Y end
+		end
+		return D.lastFloor
+	end
+
+	local function snap(x, z, refY, off)
+		if not refY then return nil end
+		local g = ground(x, refY, z)
+		if not g or g.Y > refY + 6 or g.Y < refY - 15 then return nil end
+		return Vector3.new(x, g.Y + off, z)
+	end
+
+	-- enemies = any model with MaxHP + HP attributes that is not a player
+	local function considerEnemy(m)
+		if m:IsA("Model") and m:GetAttribute("MaxHP") ~= nil and m:GetAttribute("HP") ~= nil
+			and not Players:GetPlayerFromCharacter(m) then
+			D.enemies[m] = true
+		end
+	end
+
+	local onBossAttack
+	local function hookEnemyAnims(m)
+		if animHooked[m] then return end
+		local an = m:FindFirstChildWhichIsA("Animator", true)
+		if not an then return end
+		animHooked[m] = true
+		track(an.AnimationPlayed:Connect(function(t)
+			local nm = ""
+			pcall(function() nm = string.lower(t.Name .. " " .. (t.Animation and t.Animation.Name or "")) end)
+			for _, w in ipairs(ANIM_SKIP) do
+				if string.find(nm, w, 1, true) then return end
+			end
+			local isAttack = false
+			local pr = t.Priority
+			if pr == Enum.AnimationPriority.Action or pr == Enum.AnimationPriority.Action2
+				or pr == Enum.AnimationPriority.Action3 or pr == Enum.AnimationPriority.Action4 then
+				isAttack = true
+			end
+			for _, w in ipairs(ANIM_ATTACK) do
+				if string.find(nm, w, 1, true) then isAttack = true break end
+			end
+			if isAttack and onBossAttack then onBossAttack(m, nm) end
+		end))
+	end
+
+	local function refreshEnemies()
+		local pts = {}
+		for m in pairs(D.enemies) do
+			if not m.Parent then
+				D.enemies[m] = nil
+			elseif (m:GetAttribute("HP") or 0) > 0 then
+				local p = posOf(m)
+				if p then pts[#pts + 1] = { m = m, p = p } end
+			end
+		end
+		D.pts = pts
+		local _, hrp = getChar()
+		local near = false
+		if hrp then
+			for _, e in ipairs(pts) do
+				if (e.p - hrp.Position).Magnitude <= 250 then
+					near = true
+					hookEnemyAnims(e.m)
+				end
+			end
+		end
+		D.combat = near
+	end
+
+	local function nearestEnemy(pos)
+		local bm, bp, bd
+		for _, e in ipairs(D.pts) do
+			local d = (e.p - pos).Magnitude
+			if not bd or d < bd then bm, bp, bd = e.m, e.p, d end
+		end
+		return bm, bd, bp
+	end
+
+	local function nearBossFlat(pos, within)
+		for _, e in ipairs(D.pts) do
+			if flat(e.p, pos) <= within then return true end
+		end
+		return false
+	end
+
+	-- arena bounds so a dodge never lands outside the fight room
+	local function arenaFor(pos)
+		if os.clock() - D.arenaAt > 10 then
+			D.arenaAt = os.clock()
+			D.arenas = {}
+			for _, r in ipairs(Workspace:GetChildren()) do
+				local c, rad = r:GetAttribute("Center"), r:GetAttribute("Radius")
+				if typeof(c) == "Vector3" and type(rad) == "number" then
+					D.arenas[#D.arenas + 1] = { c = c, r = rad }
+				end
+			end
+		end
+		for _, a in ipairs(D.arenas) do
+			if flat(a.c, pos) <= a.r * 1.25 then return a.c, a.r end
+		end
+	end
+
+	------------ hazards (parts spawned in AHE_BossAttacks)
+	local function rmHaz(part)
+		local h = D.haz[part]
+		if not h then return end
+		D.haz[part] = nil
+		D.hazN = D.hazN - 1
+		if h.box then pcall(function() h.box:Destroy() end) end
+		if h.conn then h.conn:Disconnect() end
+	end
+
+	local function makeBox(h)
+		if h.box or not adorn then return end
+		local b = mk("BoxHandleAdornment", { Adornee = h.part, Size = h.part.Size, AlwaysOnTop = true, ZIndex = 5, Transparency = 0.65,
+			Color3 = h.wave and Color3.fromRGB(255, 200, 40) or Color3.fromRGB(255, 60, 60) }, adorn)
+		h.box = b
+	end
+
+	local stepRef
+	local function addHaz(part)
+		if D.haz[part] or D.hazN >= 40 or not part.Parent then return end
+		local s = part.Size
+		local nm = string.lower(part.Name .. " " .. (part.Parent and part.Parent.Name or ""))
+		local named = false
+		for _, w in ipairs(WAVE_WORDS) do
+			if string.find(nm, w, 1, true) then named = true break end
+		end
+		local h = { part = part, born = os.clock(), last = part.Position, vel = Vector3.zero, size0 = math.max(s.X, s.Y, s.Z),
+			grow = 0, rate = 0, waveNamed = named, wave = false, radius = 0 }
+		D.haz[part] = h
+		D.hazN = D.hazN + 1
+		h.conn = part.AncestryChanged:Connect(function()
+			if not part:IsDescendantOf(Workspace) then rmHaz(part) end
+		end)
+		if cfg.ShowHazards then makeBox(h) end
+		note(string.format("HAZ %s size=(%.0f,%.0f,%.0f)", part.Name, s.X, s.Y, s.Z))
+		if stepRef then pcall(stepRef, 0) end
+	end
+
+	-- horizontal radius + is-it-flat
+	local function footprint(part)
+		local s = part.Size
+		local shape = part:IsA("Part") and part.Shape or nil
+		if shape == Enum.PartType.Cylinder then
+			local r = math.max(s.Y, s.Z) / 2
+			return r, s.X < r * 0.5
+		end
+		local ax = { s.X, s.Y, s.Z }
+		local mn = 1
+		if ax[2] < ax[mn] then mn = 2 end
+		if ax[3] < ax[mn] then mn = 3 end
+		local big = 0
+		for i = 1, 3 do if i ~= mn and ax[i] > big then big = ax[i] end end
+		return big / 2, ax[mn] < 4
+	end
+
+	local function inside(part, pos, margin)
+		local s = part.Size
+		local rel = part.CFrame:PointToObjectSpace(pos)
+		local shape = part:IsA("Part") and part.Shape or nil
+		local vr = 10
+		if shape == Enum.PartType.Ball then
+			return rel.Magnitude <= math.max(s.X, s.Y, s.Z) / 2 + margin
+		end
+		if shape == Enum.PartType.Cylinder then
+			local r = math.max(s.Y, s.Z) / 2
+			local radial = math.sqrt(rel.Y * rel.Y + rel.Z * rel.Z)
+			local halfH = (s.X < r) and (s.X / 2 + vr) or (s.X / 2 + margin)
+			return radial <= r + margin and math.abs(rel.X) <= halfH
+		end
+		local ax = { s.X, s.Y, s.Z }
+		local rl = { rel.X, rel.Y, rel.Z }
+		local mn = 1
+		if ax[2] < ax[mn] then mn = 2 end
+		if ax[3] < ax[mn] then mn = 3 end
+		if ax[mn] < 3 then -- flat telegraph: generous vertical reach
+			if math.abs(rl[mn]) > ax[mn] / 2 + vr then return false end
+			local i, j = 2, 3
+			if mn == 2 then i, j = 1, 3 elseif mn == 3 then i, j = 1, 2 end
+			return math.abs(rl[i]) <= ax[i] / 2 + margin and math.abs(rl[j]) <= ax[j] / 2 + margin
+		end
+		return math.abs(rl[1]) <= ax[1] / 2 + margin and math.abs(rl[2]) <= ax[2] / 2 + margin and math.abs(rl[3]) <= ax[3] / 2 + margin
+	end
+
+	local function addZone(c, r, life)
+		D.zones[#D.zones + 1] = { center = c, r = r, untilT = os.clock() + life }
+	end
+
+	-- ground hazards + melee zones; 360 waves are handled by floating
+	local function danger(pos, margin)
+		if #D.zones > 0 then
+			local now = os.clock()
+			for i = #D.zones, 1, -1 do
+				local z = D.zones[i]
+				if now > z.untilT then
+					table.remove(D.zones, i)
+				elseif flat(pos, z.center) <= z.r + margin and math.abs(pos.Y - z.center.Y) < 30 then
+					return true, z.center
+				end
+			end
+		end
+		for part, h in pairs(D.haz) do
+			if not h.wave and part.Parent then
+				local m = margin + h.grow
+				if inside(part, pos, m) then return true, part.Position end
+				if h.vel.Magnitude > 8 then
+					for k = 1, 3 do
+						if inside(part, pos - h.vel * (0.45 * k / 3), m) then return true, part.Position end
+					end
+				end
+			end
+		end
+		return false
+	end
+
+	local waveAt = 0
+	local function updateHazards(dt)
+		if D.hazN == 0 then return end
+		local now = os.clock()
+		local doWave = now - waveAt > 0.1
+		if doWave then waveAt = now end
+		for part, h in pairs(D.haz) do
+			if not part.Parent then
+				rmHaz(part)
+			else
+				local p = part.Position
+				local v = dt > 0 and (p - h.last) / dt or h.vel
+				if not part.Anchored then
+					local av = part.AssemblyLinearVelocity
+					if av.Magnitude > v.Magnitude then v = av end
+				end
+				h.vel = h.vel:Lerp(v, 0.5)
+				h.last = p
+				local s = part.Size
+				local age = math.max(now - h.born, 0.05)
+				h.rate = math.max(0, (math.max(s.X, s.Y, s.Z) - h.size0) / age)
+				h.grow = math.clamp(h.rate * 0.45 * 0.5, 0, 15)
+				if doWave then
+					local r, isFlat = footprint(part)
+					h.radius = r
+					local was = h.wave
+					h.wave = (h.waveNamed and nearBossFlat(p, 20)) or (isFlat and nearBossFlat(p, 15) and (r >= 25 or h.rate > 15))
+					if h.wave and not was then
+						note(string.format("WAVE r=%.0f rate=%.0f", r, h.rate))
+						if h.box then h.box.Color3 = Color3.fromRGB(255, 200, 40) end
+					end
+					if h.box then h.box.Size = s end
+				end
+			end
+		end
+	end
+
+	local function waveThreat(pos)
+		for part, h in pairs(D.haz) do
+			if h.wave and part.Parent then
+				local c = part.Position
+				if flat(pos, c) <= h.radius + cfg.Margin + h.rate * 0.6 and math.abs(pos.Y - c.Y) < 20 then return true end
+			end
+		end
+		return false
+	end
+
+	local function anyWave()
+		for part, h in pairs(D.haz) do
+			if h.wave and part.Parent then return true end
+		end
+		return false
+	end
+
+	local function findSafe(pos, threat, refY, off, ignoreArena)
+		if not refY then return nil end
+		local ac, ar
+		if not ignoreArena then ac, ar = arenaFor(pos) end
+		local _, _, bp = nearestEnemy(pos)
+		local away
+		if threat then
+			local d = Vector3.new(pos.X - threat.X, 0, pos.Z - threat.Z)
+			if d.Magnitude > 0.5 then away = d.Unit end
+		end
+		local need = cfg.Margin + 4
+		local dist = cfg.MinDodge
+		while dist <= 70 do
+			local cands = {}
+			for _, dir in ipairs(DIRS) do
+				local x, z = pos.X + dir.X * dist, pos.Z + dir.Z * dist
+				if (not ac or flat(ac, Vector3.new(x, 0, z)) <= ar - 5) and not danger(Vector3.new(x, refY + off, z), need) then
+					local score = 0
+					if away then score = score + (1 - dir:Dot(away)) * 10 end
+					if bp then
+						local db = flat(bp, Vector3.new(x, 0, z))
+						if db > 45 then score = score + (db - 45) * 0.5 end
+					end
+					cands[#cands + 1] = { x = x, z = z, s = score }
+				end
+			end
+			table.sort(cands, function(a, b) return a.s < b.s end)
+			for i = 1, math.min(#cands, 4) do
+				local p = snap(cands[i].x, cands[i].z, refY, off)
+				if p then return p end
+			end
+			dist = dist + 8
+		end
+		if not ignoreArena then return findSafe(pos, threat, refY, off, true) end
+		return nil
+	end
+
+	local function step(dt)
+		updateHazards(dt)
+		local _, hrp, hum = getChar()
+		if not hrp then
+			D.lastHp, D.origin, D.float, D.lastFloor = nil, nil, nil, nil
+			return
+		end
+		local refY = floorY(hrp, hum)
+		if not cfg.Dodge then
+			D.float = nil
+			D.lastHp = hum.Health
+			return
+		end
+		local now = os.clock()
+
+		-- floating over a 360 wave
+		local f = D.float
+		if f then
+			if anyWave() then f.untilT = math.max(f.untilT, now + 0.2) end
+			if now >= f.untilT or now >= f.maxT then
+				D.float = nil
+				hrp.AssemblyLinearVelocity = Vector3.new(0, -30, 0)
+			else
+				hrp.CFrame = CFrame.new(f.pos) * hrp.CFrame.Rotation
+				hrp.AssemblyLinearVelocity = Vector3.zero
+				D.lastHp = hum.Health
+				return
+			end
+		end
+
+		local pos, off = hrp.Position, standOffset(hrp, hum)
+
+		if cfg.WaveFloat and D.hazN > 0 and waveThreat(pos) then
+			local baseY = refY and (refY + off) or pos.Y
+			D.float = { pos = Vector3.new(pos.X, baseY + 25, pos.Z), untilT = now + 1.2, maxT = now + 3 }
+			D.floats = D.floats + 1
+			hrp.CFrame = CFrame.new(D.float.pos) * hrp.CFrame.Rotation
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			status = "360 wave -> float #" .. D.floats
+			D.lastHp = hum.Health
+			return
+		end
+
+		local inDanger, threat = false, nil
+		if D.hazN > 0 or #D.zones > 0 then inDanger, threat = danger(pos, cfg.Margin) end
+
+		if inDanger then
+			D.safeSince = 0
+			if now - D.lastDodge > 0.08 then
+				D.lastDodge = now
+				local tgt = findSafe(pos, threat, refY, off)
+				if tgt then
+					if not D.origin and refY then D.origin = Vector3.new(pos.X, refY + off, pos.Z) end
+					D.dodges = D.dodges + 1
+					tp(tgt)
+					status = string.format("dodge #%d  %.0f studs", D.dodges, flat(pos, tgt))
+				else
+					status = "no safe floor found"
+				end
+			end
+		else
+			-- sudden hp loss with no known hazard (melee / server hitbox): sidestep away from the boss
+			if D.lastHp and hum.MaxHealth > 0 and hum.Health < D.lastHp - hum.MaxHealth * 0.07
+				and now - D.lastHpDodge > 0.8 and D.hazN == 0 and D.combat then
+				D.lastHpDodge = now
+				local _, _, bp = nearestEnemy(pos)
+				local tgt = findSafe(pos, bp, refY, off)
+				if tgt then
+					if not D.origin and refY then D.origin = Vector3.new(pos.X, refY + off, pos.Z) end
+					D.lastDodge = now
+					tp(tgt)
+					status = "hp drop -> sidestep"
+				end
+			end
+			if D.origin then
+				if flat(pos, D.origin) > 150 then
+					D.origin = nil
+				elseif cfg.ReturnBack then
+					if D.safeSince == 0 then D.safeSince = now end
+					if now - D.safeSince >= 0.35 then
+						local back = snap(D.origin.X, D.origin.Z, refY or (D.origin.Y - off), off)
+						if back and not danger(back, cfg.Margin + 4) then
+							tp(back)
+							D.origin = nil
+						elseif now - D.lastDodge > 4 then
+							D.origin = nil
+						end
+					end
+				else
+					D.origin = nil
+				end
+			end
+		end
+		D.lastHp = hum.Health
+	end
+	stepRef = step
+
+	-- boss starts an attack animation while you are in melee reach -> leave before the hit lands
+	onBossAttack = function(m, nm)
+		if not cfg.Dodge or not cfg.AnimDodge then return end
+		local _, hrp = getChar()
+		local c = posOf(m)
+		if not hrp or not c then return end
+		local reach = (m:GetAttribute("UnitRadius") or 6) + 14
+		if flat(hrp.Position, c) <= reach + cfg.Margin then
+			addZone(c, reach, 0.9)
+			note(string.format("ANIM %s '%s' reach=%.0f", m.Name, nm, reach))
+			pcall(step, 0)
+		end
+	end
+
+	local attackConn
+	local function bindAttacks(f)
+		if attackConn then attackConn:Disconnect() end
+		local function onPart(d)
+			if not d:IsA("BasePart") then return end
+			local function try()
+				local s = d.Size
+				if d.Parent and math.max(s.X, s.Y, s.Z) >= 2 then addHaz(d) end
+			end
+			try()
+			task.defer(try)
+			task.delay(0.05, try)
+		end
+		attackConn = track(f.DescendantAdded:Connect(onPart))
+		for _, d in ipairs(f:GetDescendants()) do onPart(d) end
+	end
+
+	do
+		local f = Workspace:FindFirstChild("AHE_BossAttacks")
+		if f then bindAttacks(f) end
+		track(Workspace.ChildAdded:Connect(function(c)
+			if c.Name == "AHE_BossAttacks" then bindAttacks(c) end
+		end))
+		track(Workspace.DescendantAdded:Connect(function(d)
+			if d.ClassName == "Model" then task.defer(considerEnemy, d) end
+		end))
+		track(RunService.Heartbeat:Connect(function(dt)
+			local ok, err = pcall(step, dt)
+			if not ok then status = "dodge err: " .. tostring(err) end
+		end))
+		task.spawn(function()
+			while running do
+				pcall(refreshEnemies)
+				task.wait(0.25)
+			end
+		end)
+		task.spawn(function() -- full enemy scan: now, then every 30 s, spread across frames
+			while running do
+				local all = Workspace:GetDescendants()
+				for i = 1, #all do
+					if all[i].ClassName == "Model" then considerEnemy(all[i]) end
+					if i % 1500 == 0 then task.wait() end
+				end
+				all = nil
+				task.wait(30)
+			end
+		end)
+	end
+
+	------------------------------------------------------------ obito mode (pick up obito / obbu, carry them to the check point)
+	local OB = { targets = {}, cps = {}, n = 0, skip = setmetatable({}, { __mode = "k" }) }
+	local OB_WORDS = { "obito", "obbu" }
+	local CP_WORDS = { "checkpoint", "check_point", "point", "goal", "finish", "deliver", "dropoff", "drop_off", "altar" }
+	local CP_BAD = { "light", "spawn", "roam", "path", "wp", "waypoint" }
+	local OB_EXCL = { AHE_ObitoFX = true, AHE_Followers = true, AHE_Companions = true, AHE_Stands = true, AHE_PitWalkers = true,
+		AHE_HitFX = true, AHE_ForestDrops = true, AHE_DroppedEggs = true, AHE_SkyFX = true, EggStands = true, Hazards = true }
+	local OB_CLASS = { Model = true, Part = true, MeshPart = true, UnionOperation = true }
+
+	local function nameHas(nm, words)
+		nm = string.lower(nm)
+		for _, w in ipairs(words) do
+			if string.find(nm, w, 1, true) then return true end
+		end
+		return false
+	end
+
+	local function excluded(inst)
+		local o = inst.Parent
+		while o and o ~= Workspace do
+			if OB_EXCL[o.Name] or (o:IsA("Model") and Players:GetPlayerFromCharacter(o)) then return true end
+			o = o.Parent
+		end
+		return false
+	end
+
+	local function considerOb(inst)
+		if not OB_CLASS[inst.ClassName] then return end
+		local lname = string.lower(inst.Name)
+		local isTarget = string.find(lname, "obito", 1, true) or string.find(lname, "obbu", 1, true)
+		local isCp = false
+		if not isTarget then
+			for _, w in ipairs(CP_WORDS) do
+				if string.find(lname, w, 1, true) then isCp = true break end
+			end
+			if isCp then
+				for _, w in ipairs(CP_BAD) do
+					if string.find(lname, w, 1, true) then isCp = false break end
+				end
+			end
+		end
+		if not isTarget and not isCp then return end
+		if excluded(inst) then return end
+		if isTarget then
+			local p = inst.Parent
+			if p and p ~= Workspace and nameHas(p.Name, OB_WORDS) then return end   -- parts of an obito model
+			if not OB.targets[inst] then
+				OB.targets[inst] = true
+				note("obito target: " .. inst:GetFullName())
+			end
+		elseif not OB.cps[inst] then
+			OB.cps[inst] = true
+			note("check point: " .. inst:GetFullName())
+		end
+	end
+
+	local function rescanOb()
+		local all = Workspace:GetDescendants()
+		for i = 1, #all do
+			pcall(considerOb, all[i])
+			if i % 3000 == 0 then task.wait() end
+		end
+	end
+
+	-- only watches the workspace while Auto Obito is on (the workspace spawns thousands of fx parts)
+	track(Workspace.DescendantAdded:Connect(function(d)
+		if cfg.Obito and OB_CLASS[d.ClassName] then pcall(considerOb, d) end
+	end))
+
+	local function touchAndPrompt(obj, hrp)
+		for _, d in ipairs(obj:GetDescendants()) do
+			if d:IsA("ProximityPrompt") then
+				d.HoldDuration = 0
+				d.RequiresLineOfSight = false
+				if fireproximityprompt then pcall(fireproximityprompt, d) end
+			elseif d:IsA("TouchTransmitter") and d.Parent and hrp and firetouchinterest then
+				pcall(firetouchinterest, hrp, d.Parent, 0)
+				pcall(firetouchinterest, hrp, d.Parent, 1)
+			end
+		end
+	end
+
+	local function nearestCp(from)
+		local best, bd
+		for cp in pairs(OB.cps) do
+			if cp.Parent and cp:IsDescendantOf(Workspace) then
+				local p = posOf(cp)
+				if p then
+					local d = (p - from).Magnitude
+					if d <= 600 and (not bd or d < bd) then best, bd = cp, d end
+				end
+			else
+				OB.cps[cp] = nil
+			end
+		end
+		return best
+	end
+
+	task.spawn(function()
+		while running do
+			if cfg.Obito then
+				local n = 0
+				for t in pairs(OB.targets) do
+					if t.Parent and t:IsDescendantOf(Workspace) then n = n + 1 else OB.targets[t] = nil end
+				end
+				OB.n = n
+				local _, hrp = getChar()
+				if hrp and n > 0 then
+					local best, bd
+					for t in pairs(OB.targets) do
+						if not OB.skip[t] or OB.skip[t] < os.clock() then
+							local p = posOf(t)
+							if p then
+								local d = (p - hrp.Position).Magnitude
+								if not bd or d < bd then best, bd = t, d end
+							end
+						end
+					end
+					if best then
+						local p = posOf(best)
+						if p and tp(p + Vector3.new(0, 3, 0)) then
+							status = "obito: grabbing " .. best.Name
+							touchAndPrompt(best, hrp)
+							replaySwap("AHE_Obito", best)
+							stat.obGrab = stat.obGrab + 1
+							task.wait(0.1)
+							local cp = nearestCp(posOf(best) or p)
+							local cpp = cp and posOf(cp)
+							if cpp then
+								status = "obito: to check point " .. cp.Name
+								tp(cpp + Vector3.new(0, 3, 0))
+								touchAndPrompt(cp, hrp)
+								stat.obDeliver = stat.obDeliver + 1
+								task.wait(0.1)
+							else
+								status = "obito: no check point found - run Mode Scan"
+							end
+						end
+						OB.skip[best] = os.clock() + 6
+					end
+				end
+				task.wait(0.1)
+			else
+				OB.n = 0
+				task.wait(0.5)
+			end
+		end
+	end)
+
+	------------------------------------------------------------ popup detection by gui (in case the popup is not AHE_RewardPopup)
+	do
+		local GUI_WORDS = { "reward", "popup", "claim", "loot", "victory", "complete", "result" }
+		local guiAt = -100
+		local pg = LP:FindFirstChildOfClass("PlayerGui") or LP:WaitForChild("PlayerGui", 5)
+		if pg then
+			track(pg.DescendantAdded:Connect(function(d)
+				if not (d:IsA("GuiObject") or d:IsA("LayerCollector")) then return end
+				local lname = string.lower(d.Name)
+				if string.find(lname, "milk", 1, true) then return end
+				for _, w in ipairs(GUI_WORDS) do
+					if string.find(lname, w, 1, true) then
+						local now = os.clock()
+						if now - guiAt > 2 then
+							guiAt = now
+							note("GUI popup: " .. d:GetFullName())
+							onPopup()
+						end
+						return
+					end
+				end
+			end))
+		end
+	end
+
+	------------------------------------------------------------ mode end -> claim burst + auto replay
+	local rep = { boss = nil, endedAt = nil, last = 0, modeAt = nil, popupSeen = -100, burstFor = nil, inMode = false, lastPos = nil, why = "idle" }
+	local function claimBurst()
+		for _, t in ipairs({ 0.3, 1, 2, 3.5 }) do
+			task.delay(t, function()
+				if running and cfg.AutoClaim and L.claim then claimNow() end
+			end)
+		end
+	end
+
+	-- mode just started: the latest remote you fired in the 8 s before it = entry remote
+	local function learnEntry(why)
+		local now = os.clock()
+		for i = #recentCalls, 1, -1 do
+			local c = recentCalls[i]
+			if now - c.t <= 8 and c.remote and c.remote.Parent then
+				L.ENTRY_AUTO = { remote = c.remote, method = c.method, args = c.args }
+				L.lastEntry = "ENTRY_AUTO"
+				L.entryName = c.name
+				note("learned ENTRY " .. c.name .. " (" .. why .. ") " .. ser(c.args))
+				return
+			end
+		end
+	end
+
+	-- fallback: the game's own replay / retry button, fired through its connections (no mouse click)
+	local REPLAY_WORDS = { "replay", "retry", "again", "rematch", "restart", "next", "continue", "เล่นอีก", "ลองใหม่", "เริ่มใหม่", "ต่อไป" }
+	local REPLAY_BLOCK = { "egg", "hatch", "buy", "robux", "ไข่", "ซื้อ", "milk" }
+	local function shown(g)
+		if g.AbsoluteSize.X < 3 then return false end
+		local o = g
+		while o and not o:IsA("LayerCollector") do
+			if o:IsA("GuiObject") and not o.Visible then return false end
+			o = o.Parent
+		end
+		return o ~= nil and not (o:IsA("ScreenGui") and not o.Enabled)
+	end
+	local function fireReplayButton()
+		if not getconnections then return false end
+		local pg = LP:FindFirstChildOfClass("PlayerGui")
+		if not pg then return false end
+		for _, b in ipairs(pg:GetDescendants()) do
+			if b:IsA("GuiButton") and shown(b) then
+				local t = string.lower(b.Name .. " " .. (b:IsA("TextButton") and b.Text or ""))
+				for _, c in ipairs(b:GetChildren()) do if c:IsA("TextLabel") then t = t .. " " .. string.lower(c.Text) end end
+				local bad = false
+				for _, w in ipairs(REPLAY_BLOCK) do if string.find(t, w, 1, true) then bad = true break end end
+				if not bad then
+					for _, w in ipairs(REPLAY_WORDS) do
+						if string.find(t, w, 1, true) then
+							local fired = false
+							for _, sig in ipairs({ b.Activated, b.MouseButton1Click, b.MouseButton1Down }) do
+								local ok, list = pcall(getconnections, sig)
+								if ok and list then
+									for _, cn in ipairs(list) do if pcall(function() cn:Fire() end) then fired = true end end
+								end
+								if fired then break end
+							end
+							if fired then
+								note("replay button: " .. b:GetFullName())
+								return true
+							end
+						end
+					end
+				end
+			end
+		end
+		return false
+	end
+
+	local function doReplay()
+		if L.lastEntry and replay(L.lastEntry) then return "remote " .. tostring(L.entryName or L.lastEntry) end
+		if fireReplayButton() then return "button" end
+		return nil
+	end
+
+	local function modeStart(why)
+		if rep.inMode then return end
+		rep.inMode, rep.modeAt, rep.endedAt = true, os.clock(), nil
+		note("mode start (" .. why .. ")")
+		learnEntry(why)
+	end
+	local function modeEnd(why)
+		if not rep.inMode then return end
+		rep.inMode, rep.endedAt, rep.boss = false, os.clock(), nil
+		note("mode end (" .. why .. ")")
+	end
+
+	task.spawn(function()
+		while running do
+			local now = os.clock()
+			local _, hrp = getChar()
+			if hrp then
+				local pos = hrp.Position
+				-- big position jump = warped into / out of a mode
+				if rep.lastPos and (pos - rep.lastPos).Magnitude > 400 and now - D.lastDodge > 1 then
+					if rep.inMode and now - rep.modeAt > 5 then modeEnd("warp out") else modeStart("warp in") end
+				end
+				rep.lastPos = pos
+				-- boss tracking
+				if rep.boss then
+					if not rep.boss.Parent or (rep.boss:GetAttribute("HP") or 0) <= 0 then
+						rep.boss = nil
+						modeEnd("boss dead")
+					end
+				else
+					local e, d = nearestEnemy(pos)
+					if e and d <= 250 and e:GetAttribute("Mob") ~= true then
+						rep.boss = e
+						modeStart("boss " .. e.Name)
+					end
+				end
+			else
+				rep.lastPos = nil
+			end
+			if OB.n > 0 then modeStart("obito") end
+			if popupAt > rep.popupSeen then
+				rep.popupSeen = popupAt
+				if rep.inMode then modeEnd("reward popup") end
+			end
+			if rep.endedAt and rep.burstFor ~= rep.endedAt then
+				rep.burstFor = rep.endedAt
+				if cfg.AutoClaim then claimBurst() end
+			end
+			if rep.endedAt then
+				local wait_ = cfg.ReplayDelay + (cfg.AutoClaim and cfg.ClaimDelay or 0)
+				if not cfg.AutoReplay then
+					rep.why = "mode ended (auto replay off)"
+					if now - rep.endedAt > 15 then rep.endedAt = nil end
+				elseif now - rep.endedAt < wait_ then
+					rep.why = string.format("replay in %.1f s", wait_ - (now - rep.endedAt))
+				elseif now - rep.last > 4 then
+					local how = doReplay()
+					rep.last = now
+					if how then
+						stat.replays = stat.replays + 1
+						rep.why = "replay #" .. stat.replays .. " via " .. how
+						status = rep.why
+						rep.endedAt = nil
+					else
+						rep.why = "no entry remote / no replay button - enter a mode by hand once"
+						status = rep.why
+						if now - rep.endedAt > 30 then rep.endedAt = nil end
+					end
+				end
+			else
+				rep.why = rep.inMode and "in mode" or "waiting for a mode"
+			end
+			task.wait(0.3)
+		end
+	end)
+
+	-- everything a mode needs you to find: dumps names / paths / attributes / on-screen text to a file + clipboard
+	local function modeScan()
+		local out = { "-- milk mode scan  " .. os.date("%H:%M:%S"), "-- workspace children" }
+		for _, c in ipairs(Workspace:GetChildren()) do out[#out + 1] = c.Name .. "  [" .. c.ClassName .. "]" end
+		out[#out + 1] = "-- keyword matches"
+		local KW = { "obito", "obbu", "kamui", "point", "check", "goal", "finish", "raid", "portal", "gate", "reward" }
+		local all, n = Workspace:GetDescendants(), 0
+		for i = 1, #all do
+			local d = all[i]
+			local cn = d.ClassName
+			if cn ~= "PointLight" and cn ~= "Attachment" and cn ~= "Beam" and cn ~= "ParticleEmitter" and nameHas(d.Name, KW) then
+				n = n + 1
+				if n <= 400 then
+					local p = (d:IsA("BasePart") or d:IsA("Model")) and posOf(d)
+					local attrs = {}
+					for k, v in pairs(d:GetAttributes()) do attrs[#attrs + 1] = k .. "=" .. tostring(v) end
+					out[#out + 1] = string.format("%s [%s]%s %s", d:GetFullName(), cn,
+						p and string.format(" (%.0f,%.0f,%.0f)", p.X, p.Y, p.Z) or "", table.concat(attrs, " "))
+				end
+			end
+			if i % 1500 == 0 then task.wait() end
+		end
+		out[#out + 1] = "-- visible gui text"
+		local pg = LP:FindFirstChildOfClass("PlayerGui")
+		local g = 0
+		if pg then
+			for _, d in ipairs(pg:GetDescendants()) do
+				if (d:IsA("TextLabel") or d:IsA("TextButton")) and d.Visible and d.Text ~= "" and d.AbsoluteSize.X > 2 then
+					g = g + 1
+					if g <= 120 then out[#out + 1] = d:GetFullName() .. "  =  " .. string.sub(d.Text, 1, 60) end
+				end
+			end
+		end
+		out[#out + 1] = "-- learned remotes"
+		for k, v in pairs(L) do
+			if type(v) == "table" and v.args then out[#out + 1] = k .. " " .. ser(v.args) end
+		end
+		local txt = table.concat(out, "\n")
+		local saved = false
+		if writefile then saved = pcall(writefile, "milk_ahe_modescan.txt", txt) end
+		if setclipboard then pcall(setclipboard, txt) end
+		status = saved and "saved milk_ahe_modescan.txt" or "scan copied to clipboard"
+	end
+
+	------------------------------------------------------------ ui
+	local BG, PANEL, OFFC, ONC, TXT, MUTE = Color3.fromRGB(24, 24, 28), Color3.fromRGB(34, 34, 40), Color3.fromRGB(46, 46, 54), Color3.fromRGB(46, 120, 90), Color3.fromRGB(225, 225, 230), Color3.fromRGB(150, 150, 160)
+
+	local host
+	pcall(function() if gethui then host = gethui() end end)
+	if not host then pcall(function() host = cloneref(game:GetService("CoreGui")) end) end
+	local root = mk("ScreenGui", { Name = "MilkHatch", ResetOnSpawn = false, DisplayOrder = 999, ZIndexBehavior = Enum.ZIndexBehavior.Sibling })
+	if not pcall(function() root.Parent = host end) or not root.Parent then root.Parent = LP:WaitForChild("PlayerGui") end
+	local espFolder = mk("Folder", { Name = "ESP" }, root)
+	adorn = mk("Folder", { Name = "Hazards" }, root)
+
+	local win = mk("Frame", { Size = UDim2.fromOffset(340, 560), Position = UDim2.new(0.5, -170, 0.5, -280), BackgroundColor3 = BG, BorderSizePixel = 0, Active = true }, root)
+	mk("UICorner", { CornerRadius = UDim.new(0, 8) }, win)
+
+	local bar = mk("Frame", { Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = PANEL, BorderSizePixel = 0 }, win)
+	mk("UICorner", { CornerRadius = UDim.new(0, 8) }, bar)
+	mk("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(1, -40, 1, 0), Position = UDim2.fromOffset(12, 0), Text = "milk  |  Anime Hunting Egg", TextColor3 = TXT,
+		Font = Enum.Font.GothamBold, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left }, bar)
+	local closeB = mk("TextButton", { Size = UDim2.fromOffset(28, 22), Position = UDim2.new(1, -34, 0, 5), BackgroundColor3 = OFFC, BorderSizePixel = 0,
+		Text = "x", TextColor3 = TXT, Font = Enum.Font.GothamBold, TextSize = 13, AutoButtonColor = false }, bar)
+	mk("UICorner", { CornerRadius = UDim.new(0, 5) }, closeB)
+
+	do
+		local drag, ds, sp
+		track(bar.InputBegan:Connect(function(i)
+			if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+				drag, ds, sp = true, i.Position, win.Position
+			end
+		end))
+		track(UIS.InputChanged:Connect(function(i)
+			if drag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+				local d = i.Position - ds
+				win.Position = UDim2.new(sp.X.Scale, sp.X.Offset + d.X, sp.Y.Scale, sp.Y.Offset + d.Y)
+			end
+		end))
+		track(UIS.InputEnded:Connect(function(i)
+			if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then drag = false end
+		end))
+	end
+
+	local scroll = mk("ScrollingFrame", { Position = UDim2.fromOffset(0, 36), Size = UDim2.new(1, 0, 1, -62), BackgroundTransparency = 1, BorderSizePixel = 0,
+		ScrollBarThickness = 5, AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new() }, win)
+	mk("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 12), PaddingTop = UDim.new(0, 2), PaddingBottom = UDim.new(0, 8) }, scroll)
+	mk("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 4) }, scroll)
+
+	local statusL = mk("TextLabel", { Position = UDim2.new(0, 0, 1, -24), Size = UDim2.new(1, 0, 0, 24), BackgroundColor3 = PANEL, BorderSizePixel = 0,
+		Text = "", TextColor3 = MUTE, Font = Enum.Font.Code, TextSize = 12, TextTruncate = Enum.TextTruncate.AtEnd }, win)
+
+	local order, repaints = 0, {}
+	local function nextO() order = order + 1 return order end
+
+	local function btn(text, h)
+		local b = mk("TextButton", { Size = UDim2.new(1, 0, 0, h or 28), BackgroundColor3 = OFFC, BorderSizePixel = 0, Text = text, TextColor3 = TXT,
+			Font = Enum.Font.Gotham, TextSize = 13, AutoButtonColor = false, LayoutOrder = nextO() }, scroll)
+		mk("UICorner", { CornerRadius = UDim.new(0, 5) }, b)
+		return b
+	end
+	local function section(text)
+		mk("TextLabel", { Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1, Text = text, TextColor3 = MUTE, Font = Enum.Font.GothamBold, TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = nextO() }, scroll)
+	end
+	local function toggle(label, key, after)
+		local b = btn("")
+		local function rp()
+			b.Text = label .. ": " .. (cfg[key] and "ON" or "OFF")
+			b.BackgroundColor3 = cfg[key] and ONC or OFFC
+		end
+		track(b.MouseButton1Click:Connect(function()
+			cfg[key] = not cfg[key]
+			rp()
+			if after then pcall(after) end
+		end))
+		repaints[#repaints + 1] = rp
+		rp()
+	end
+	local function dyn(getText, onClick)
+		local b = btn("")
+		local function rp() b.Text = getText() end
+		track(b.MouseButton1Click:Connect(function() pcall(onClick) rp() end))
+		repaints[#repaints + 1] = rp
+		rp()
+	end
+	local function cycle(label, key, values, suffix)
+		dyn(function() return label .. ": " .. tostring(cfg[key]) .. (suffix or "") end, function()
+			local idx = table.find(values, cfg[key]) or 0
+			cfg[key] = values[idx % #values + 1]
+		end)
+	end
+
+	section("DODGE  (F6)")
+	toggle("Auto Dodge", "Dodge")
+	toggle("Anim Pre-Dodge", "AnimDodge")
+	toggle("Float Over 360 Waves", "WaveFloat")
+	toggle("Return To Spot", "ReturnBack")
+	toggle("Show Hazards (red / yellow)", "ShowHazards", function()
+		for _, h in pairs(D.haz) do
+			if cfg.ShowHazards then
+				makeBox(h)
+			elseif h.box then
+				h.box:Destroy()
+				h.box = nil
+			end
+		end
+	end)
+	cycle("Margin", "Margin", MARGINS, " studs")
+	cycle("Dodge Distance", "MinDodge", DISTS, "+ studs")
+
+	section("REPLAY + REWARD")
+	toggle("Auto Replay (re-enter last mode)", "AutoReplay")
+	cycle("Replay Delay", "ReplayDelay", RDELAYS, " s")
+	local br = btn("Replay Now (test)")
+	track(br.MouseButton1Click:Connect(function()
+		local how = doReplay()
+		status = how and ("replayed via " .. how) or "nothing learned yet - enter a mode by hand"
+	end))
+	toggle("Auto Claim Reward Popup (remote)", "AutoClaim")
+	cycle("Claim Delay", "ClaimDelay", CDELAYS, " s")
+	local bc = btn("Learn Claim Remote (then claim by hand)")
+	track(bc.MouseButton1Click:Connect(function()
+		armClaimUntil = os.clock() + 20
+		L.claim = nil
+		status = "armed 20s: claim the reward by hand now"
+	end))
+
+	section("OBITO MODE")
+	toggle("Auto Obito (grab obito / obbu -> check point)", "Obito", function()
+		if cfg.Obito then task.spawn(rescanOb) end
+	end)
+	local bs = btn("Mode Scan (run inside the mode)")
+	track(bs.MouseButton1Click:Connect(function() task.spawn(modeScan) end))
+
+	section("HATCH")
+	toggle("Auto Hatch", "Hatch")
+	dyn(function() return "Stand: " .. standLabel(stands()[cfg.Stand]) end, function()
+		cfg.Stand = cfg.Stand % math.max(#stands(), 1) + 1
+	end)
+	toggle("Teleport To Stand", "TpStand")
+	cycle("Hatch Delay", "HatchDelay", DELAYS, " s")
+
+	section("SELL")
+	toggle("Auto Sell", "Sell")
+	cycle("Sell Every", "SellEvery", SELLS, " s")
+	toggle("Teleport To Sell Zone", "SellTp")
+
+	section("FOREST")
+	toggle("Auto Collect Drops", "Collect")
+	toggle("Return When Done", "CollectReturn")
+
+	section("MISC")
+	local function rebuildEsp()
+		for _, o in ipairs(espFolder:GetChildren()) do o:Destroy() end
+		if not cfg.ESP then return end
+		for _, m in ipairs(stands()) do
+			local adornee = m:FindFirstChildWhichIsA("BasePart", true)
+			if adornee then
+				local bb = mk("BillboardGui", { Adornee = adornee, AlwaysOnTop = true, Size = UDim2.fromOffset(200, 34), StudsOffset = Vector3.new(0, 9, 0), MaxDistance = 100000 }, espFolder)
+				mk("TextLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Font = Enum.Font.Code, TextSize = 13,
+					TextColor3 = Color3.fromRGB(120, 255, 210), TextStrokeTransparency = 0.3, Text = standLabel(m) }, bb)
+			end
+		end
+	end
+	toggle("Egg Stand ESP", "ESP", rebuildEsp)
+	toggle("Anti AFK", "AntiAfk")
+	toggle("Remote Spy (log)", "Spy")
+	local b1 = btn("Save Spy + Notes Log")
+	track(b1.MouseButton1Click:Connect(function()
+		local txt = "-- notes\n" .. table.concat(notes, "\n") .. "\n-- spy\n" .. table.concat(spyLog, "\n")
+		local saved = false
+		if writefile then saved = pcall(writefile, "milk_ahe_hatch_log.txt", txt) end
+		if setclipboard then pcall(setclipboard, txt) end
+		status = saved and "saved milk_ahe_hatch_log.txt" or "log copied to clipboard"
+	end))
+	local b2 = btn("Forget Learned Remotes")
+	track(b2.MouseButton1Click:Connect(function()
+		for k in pairs(L) do L[k] = nil end
+		status = "cleared - hatch / sell by hand to learn again"
+	end))
+
+	section("LIVE")
+	local info = mk("TextLabel", { Size = UDim2.new(1, 0, 0, 196), BackgroundColor3 = PANEL, BorderSizePixel = 0, Text = "", TextColor3 = TXT, Font = Enum.Font.Code,
+		TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, LayoutOrder = nextO() }, scroll)
+	mk("UICorner", { CornerRadius = UDim.new(0, 5) }, info)
+	mk("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingTop = UDim.new(0, 6) }, info)
+
+	track(closeB.MouseButton1Click:Connect(function() if env.MilkHatch_Unload then env.MilkHatch_Unload() end end))
+	track(UIS.InputBegan:Connect(function(i, gp)
+		if gp then return end
+		if i.KeyCode == Enum.KeyCode.Insert then win.Visible = not win.Visible end
+		if i.KeyCode == Enum.KeyCode.F6 then cfg.Dodge = not cfg.Dodge end
+	end))
+
+	task.spawn(function()
+		rebuildEsp()
+		while running do
+			for _, f in ipairs(repaints) do pcall(f) end
+			local n = 0
+			for k in pairs(L) do if type(k) == "string" and string.sub(k, 1, 4) == "AHE_" then n = n + 1 end end
+			info.Text = table.concat({
+				"egg remote : " .. tostring(L.lastEgg or "not learned"),
+				"sell remote: " .. (L.AHE_Sell and "learned" or "not learned"),
+				"learned     : " .. n .. " remotes",
+				"hatched     : " .. stat.hatched,
+				"sold        : " .. stat.sold,
+				"collected   : " .. stat.collected,
+				"combat      : " .. (D.combat and "yes" or "no"),
+				"hazards     : " .. D.hazN,
+				"dodges      : " .. D.dodges .. "   floats: " .. D.floats,
+				"entry remote: " .. tostring(L.entryName or L.lastEntry or "not learned"),
+				"replay      : " .. rep.why,
+				"replays     : " .. stat.replays,
+				"claim remote: " .. (L.claim and L.claim.name or "not learned") .. "   popups " .. stat.popups .. "  claims " .. stat.claims,
+				"obito       : targets " .. OB.n .. "  grab " .. stat.obGrab .. "  deliver " .. stat.obDeliver,
+			}, "\n")
+			statusL.Text = "  " .. status
+			task.wait(0.3)
+		end
+	end)
+
+	env.MilkHatch_Unload = function()
+		running = false
+		env.MilkHatch_On = false
+		env.MilkHatch_Cap = nil
+		cfg.Hatch, cfg.Sell, cfg.Collect, cfg.Dodge = false, false, false, false
+		cfg.AutoReplay, cfg.AutoClaim, cfg.Obito = false, false, false
+		for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
+		conns = {}
+		for part in pairs(D.haz) do rmHaz(part) end
+		pcall(function() root:Destroy() end)
+		env.MilkHatch_Unload = nil
+	end
+
+end, milkFail)
+if milkOk then
+	pcall(function()
+		game:GetService("StarterGui"):SetCore("SendNotification", { Title = "milk AHE", Text = "loaded. Insert = menu, F6 = dodge", Duration = 5 })
+	end)
+end
