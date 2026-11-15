@@ -1274,30 +1274,96 @@ local milkOk, milkErr = xpcall(function()
 	end
 
 	---------------- claim
-	local popupGui, claimedFor = nil, nil
-	local function autoClaim(src)
-		if not cfg.AutoClaim or userBusy() then return end
-		if claimedFor == popupAt then return end
-		claimedFor = popupAt
-		-- 1) a learned claim remote (Learn Claim button)
-		if L.claim and claimNow() then
-			status = "claimed via remote " .. tostring(L.claim.name)
-			return
-		end
-		-- 2) the popup's own claim button (game handler, not a click)
+	local POPUP_PATH = { "reward", "popup", "loot", "itemget", "drop", "claim", "obtain", "unbox" }
+	local POPUP_SKIP = { "login", "shop", "store", "battlepass", "robux", "buy", "purchase", "milk", "quest", "index", "settings", "codes" }
+	local pressedAt = setmetatable({}, { __mode = "k" })
+	local popupGui
+
+	-- every visible button that sits inside a reward / popup gui
+	local function popupButtons()
 		local pg = LP:FindFirstChildOfClass("PlayerGui")
-		local b = findButton(popupGui, CLAIM_WORDS, REPLAY_WORDS) or findButton(popupGui, { "" }, LEAVE_WORDS)
-		if not b and pg then b = findButton(pg, { "claim", "collect", "รับ", "เก็บ" }, REPLAY_WORDS) end
-		if b and pressButton(b) then
-			stat.claims = stat.claims + 1
-			status = "claimed via button " .. b.Name
-			note("claim button: " .. b:GetFullName() .. " (" .. src .. ")")
-		else
-			status = "popup: no claim button found - use Learn Claim"
+		local out = {}
+		if not pg then return out end
+		for _, b in ipairs(pg:GetDescendants()) do
+			if b:IsA("GuiButton") then
+				local path = string.lower(b:GetFullName())
+				if hasWord(path, POPUP_PATH) and not hasWord(path, POPUP_SKIP) and shown(b) then
+					local t = btnText(b)
+					if not hasWord(t, REPLAY_WORDS) and not hasWord(t, LEAVE_WORDS) and not hasWord(t, POPUP_SKIP) then
+						out[#out + 1] = b
+					end
+				end
+			end
 		end
+		-- claim-looking buttons first
+		table.sort(out, function(x, y)
+			local cx, cy = hasWord(btnText(x), CLAIM_WORDS), hasWord(btnText(y), CLAIM_WORDS)
+			if cx ~= cy then return cx end
+			return false
+		end)
+		return out
+	end
+
+	local function autoClaim(src)
+		if not cfg.AutoClaim or userBusy() then return false end
+		-- 1) learned claim remote (Learn Claim), only right after a popup event
+		if src == "event" and L.claim and claimNow() then
+			status = "claimed via remote " .. tostring(L.claim.name)
+			return true
+		end
+		-- 2) the popup's own button handler (not a mouse click)
+		for _, b in ipairs(popupButtons()) do
+			if not pressedAt[b] or os.clock() - pressedAt[b] > 1.5 then
+				pressedAt[b] = os.clock()
+				if pressButton(b) then
+					stat.claims = stat.claims + 1
+					status = "claimed via button " .. b.Name
+					note("claim button: " .. b:GetFullName() .. " (" .. src .. ")")
+					return true
+				end
+			end
+		end
+		return false
 	end
 	env.MilkHatch_AutoClaim = autoClaim
 
+	task.spawn(function() -- poll: popups that are only toggled visible never fire DescendantAdded
+		while running do
+			if cfg.AutoClaim then pcall(autoClaim, "poll") end
+			task.wait(math.max(cfg.ClaimDelay, 0.4))
+		end
+	end)
+
+	-- dumps what is on screen so the popup can be matched exactly
+	local function popupScan()
+		local pg = LP:FindFirstChildOfClass("PlayerGui")
+		local out = { "-- milk popup scan " .. os.date("%H:%M:%S"), "-- visible buttons" }
+		if pg then
+			for _, b in ipairs(pg:GetDescendants()) do
+				if b:IsA("GuiButton") and shown(b) then
+					out[#out + 1] = b:GetFullName() .. "  [" .. b.ClassName .. "]  text=" .. string.sub(btnText(b), 1, 60)
+				end
+			end
+			out[#out + 1] = "-- visible frames with reward/popup/item in the path"
+			for _, g in ipairs(pg:GetDescendants()) do
+				if g:IsA("GuiObject") and not g:IsA("GuiButton") and shown(g) then
+					local path = string.lower(g:GetFullName())
+					if hasWord(path, POPUP_PATH) or string.find(path, "item", 1, true) then
+						out[#out + 1] = g:GetFullName() .. "  [" .. g.ClassName .. "]" .. ((g:IsA("TextLabel") and g.Text ~= "") and ("  = " .. string.sub(g.Text, 1, 40)) or "")
+					end
+				end
+			end
+		end
+		out[#out + 1] = "-- notes"
+		for i = math.max(1, #notes - 40), #notes do out[#out + 1] = notes[i] end
+		local txt = table.concat(out, "\n")
+		local saved = false
+		if writefile then saved = pcall(writefile, "milk_ahe_popupscan.txt", txt) end
+		if setclipboard then pcall(setclipboard, txt) end
+		status = saved and "saved milk_ahe_popupscan.txt (also in clipboard)" or "popup scan copied to clipboard"
+	end
+
+	local hideDialog
 	---------------- replay state
 	local rep = { boss = nil, endedAt = nil, endId = 0, doneId = -1, tries = 0, inMode = false, lastPos = nil, why = "idle", endGuiAt = -100, endGui = nil }
 
@@ -1337,12 +1403,35 @@ local milkOk, milkErr = xpcall(function()
 		end
 	end
 
+	-- smallest frame that holds both the replay and the home / leave button = the end dialog
+	local function dialogOf(b)
+		local o = b.Parent
+		while o and not o:IsA("LayerCollector") do
+			for _, d in ipairs(o:GetDescendants()) do
+				if d ~= b and d:IsA("GuiButton") and hasWord(btnText(d), LEAVE_WORDS) then return o end
+			end
+			o = o.Parent
+		end
+		return nil
+	end
+	hideDialog = function(b)
+		local dlg = dialogOf(b)
+		if not dlg then return end
+		task.delay(0.6, function()
+			if dlg.Parent and dlg:IsA("GuiObject") and dlg.Visible then
+				dlg.Visible = false
+				note("hid end dialog: " .. dlg:GetFullName())
+			end
+		end)
+	end
+
 	local function doReplay()
 		local pg = LP:FindFirstChildOfClass("PlayerGui")
 		-- 1) the end screen's replay button (exactly what you would press)
 		local b = findButton(rep.endGui, REPLAY_WORDS, LEAVE_WORDS) or findButton(pg, REPLAY_WORDS, LEAVE_WORDS)
 		if b and pressButton(b) then
 			note("replay button: " .. b:GetFullName())
+			hideDialog(b)
 			return "button " .. b.Name
 		end
 		-- 2) the call you taught with Learn Replay
@@ -1355,6 +1444,8 @@ local milkOk, milkErr = xpcall(function()
 					else c.remote:InvokeServer(table.unpack(a, 1, a.n)) end
 				end)
 			end)
+			local rb = findButton(rep.endGui, REPLAY_WORDS, LEAVE_WORDS) or findButton(pg, REPLAY_WORDS, LEAVE_WORDS)
+			if rb then hideDialog(rb) end
 			return "remote " .. c.name
 		end
 		return nil
@@ -1586,6 +1677,8 @@ local milkOk, milkErr = xpcall(function()
 		armReplayUntil, armClaimUntil = 0, os.clock() + 30
 		status = "armed 30s: claim the reward by hand now"
 	end))
+	local bp = btn("Popup Scan (run while the popup is open)")
+	track(bp.MouseButton1Click:Connect(function() task.spawn(popupScan) end))
 	local br = btn("Replay Now (test)")
 	track(br.MouseButton1Click:Connect(function()
 		task.delay(0.2, function()
