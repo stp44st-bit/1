@@ -1,6 +1,6 @@
 --// milk :: Anime Hunting Egg  |  hatch hub
 --// auto hatch (learns the egg remote from one manual hatch) + auto sell + forest collect + egg stand esp + anti afk
---// auto dodge + auto replay + auto claim reward popup (remote) + obito mode helper
+--// auto dodge v6 (tracked hazards, radius-scaled float, miss log + learning) + auto replay v6 + auto claim + obito helper
 --// Insert = hide/show window
 
 -- error catcher: if anything breaks on load, the reason shows on screen, in the console and in milk_ahe_error.txt
@@ -59,12 +59,13 @@ local milkOk, milkErr = xpcall(function()
 		Collect = false, CollectReturn = true,
 		ESP = true, AntiAfk = true, Spy = false,
 		Dodge = true, AnimDodge = true, WaveFloat = true, ReturnBack = true, ShowHazards = false,
-		Margin = 4, MinDodge = 15,
+		Margin = 6, MinDodge = 30, FloatMin = 30, WideDetect = true, LearnHits = true, HitDodge = true,
 		AutoReplay = false, ReplayDelay = 2, AutoClaim = true, ClaimDelay = 0.3,
 		Obito = false,
 	}
-	local MARGINS = { 2, 4, 6, 8, 10 }
-	local DISTS = { 10, 15, 20, 30, 40, 55 }
+	local MARGINS = { 2, 4, 6, 8, 10, 14 }
+	local FLOATS = { 25, 30, 40, 60, 100, 150, 250 }
+	local DISTS = { 15, 20, 30, 40, 55, 75, 100 }
 	local adorn   -- hazard box folder, created with the ui
 	local RDELAYS = { 1, 2, 3, 5, 8 }
 	local CDELAYS = { 0, 0.3, 0.6, 1, 2 }
@@ -79,7 +80,7 @@ local milkOk, milkErr = xpcall(function()
 
 	local function note(s)
 		notes[#notes + 1] = string.format("[%s] %s", os.date("%H:%M:%S"), s)
-		if #notes > 200 then table.remove(notes, 1) end
+		if #notes > 800 then table.remove(notes, 1) end
 	end
 
 	local function ser(v, d)
@@ -209,6 +210,7 @@ local milkOk, milkErr = xpcall(function()
 
 	env.MilkHatch_On = true
 	env.MilkHatch_Cap = function(remote, method, nm, args)
+		if nm == "AHE_Skill" or nm == "AHE_StandSkill" or nm == "AHE_Weapon" then stat.ownSkillAt = os.clock() end
 		local now = os.clock()
 		if (armClaimUntil > now or armReplayUntil > now) and not NOISE[nm] and not NOT_LEARN[nm] then
 			local rec = { remote = remote, method = method, args = args, popup = popupArgs, name = nm }
@@ -535,466 +537,796 @@ local milkOk, milkErr = xpcall(function()
 		end)
 	end))
 
-	------------------------------------------------------------ auto dodge
+	------------------------------------------------------------ auto dodge v6
 	local RunService = S("RunService")
 	local D = {
 		enemies = {}, pts = {}, haz = {}, hazN = 0, zones = {},
-		origin = nil, lastDodge = 0, safeSince = 0, dodges = 0, floats = 0,
-		lastHp = nil, lastHpDodge = 0, float = nil, combat = false,
+		origin = nil, lastDodge = 0, safeSince = 0, dodges = 0, floats = 0, misses = 0,
+		lastHp = nil, lastMiss = 0, float = nil, combat = false, lastHazAt = -100,
 		lastFloor = nil, floorAt = 0, arenas = {}, arenaAt = -100,
+		boost = 1, far = false, lastCast = -100, learned = {}, learnedN = 0,
 	}
-	local WAVE_WORDS = { "wave", "shock", "ring", "nova", "pulse", "ripple", "360", "quake", "stomp" }
-	local ANIM_SKIP = { "idle", "walk", "run", "move", "death", "die", "dead", "hurt", "stun", "spawn", "intro", "pose", "breath" }
-	local ANIM_ATTACK = { "attack", "skill", "slam", "swing", "cast", "ult", "combo", "smash", "bite", "claw", "strike", "roar", "charge" }
-	local animHooked = setmetatable({}, { __mode = "k" })
-	local DIRS = {}
-	for k = 0, 15 do
-		local a = k * math.pi / 8
-		DIRS[#DIRS + 1] = Vector3.new(math.cos(a), 0, math.sin(a))
-	end
+	local nearestEnemy, makeBox, rmHaz, resetDodgeLearning
+	do
+		local VR = 12             -- a flat telegraph hits this far above / below itself
+		local MAX_HAZ = 120
+		local MAX_SEARCH = 220    -- farthest ring searched for safe floor
+		local WAVE_WORDS = { "wave", "shock", "ring", "nova", "pulse", "ripple", "360", "quake", "stomp" }
+		local HAZ_WORDS = { "warn", "telegraph", "indicator", "danger", "aoe", "hurtbox", "hitzone", "killzone" }
+		local ANIM_SKIP = { "idle", "walk", "run", "move", "death", "die", "dead", "hurt", "stun", "spawn", "intro", "pose", "breath" }
+		local ANIM_ATTACK = { "attack", "skill", "slam", "swing", "cast", "ult", "combo", "smash", "bite", "claw", "strike", "roar", "charge" }
+		local FX_FOLDERS = { AHE_SurukaFX = true, AHE_SkeletonDragonFX = true, AHE_ObitoFX = true }
+		local EXCL = { AHE_Followers = true, AHE_Companions = true, AHE_Stands = true, AHE_PitWalkers = true, AHE_HitFX = true, AHE_ODMKit = true,
+			AHE_SwapFX = true, AHE_ForestDrops = true, AHE_DroppedEggs = true, LocalDeathFragments = true, GateVortex = true, AHE_SkyFX = true,
+			AHE_MountPets = true, AHE_Kunais = true, AHE_NpcRings = true, AHE_RingQuestRings = true, AHE_BossUnits = true, EggStands = true }
+		local CAST_EVENTS = { "AHE_Boss", "AHE_PitBoss", "AHE_Guardian", "AHE_ScrollBoss", "AHE_Suruka", "AHE_SukunaWarp" }
+		local R_KEYS = { "Radius", "radius", "Range", "range", "HitRadius", "AoE", "AOE", "R" }
+		local RAD_HINT = { "radius", "range", "aoe", "reach" }
+		local TIME_HINT = { "delay", "windup", "time", "duration", "telegraph" }
+		local GENERIC = { Part = true, MeshPart = true, Union = true, UnionOperation = true, WedgePart = true, Ball = true, Effect = true }
+		local BALL, CYL = Enum.PartType.Ball, Enum.PartType.Cylinder
 
-	local rp = RaycastParams.new()
-	rp.FilterType = Enum.RaycastFilterType.Exclude
-	pcall(function() rp.RespectCanCollide = true end)
-	local exAt = -100
-	local function refreshExclude()
-		if os.clock() - exAt < 2 then return end
-		exAt = os.clock()
-		local ex = {}
-		for _, p in ipairs(Players:GetPlayers()) do
-			if p.Character then ex[#ex + 1] = p.Character end
+		local animHooked = setmetatable({}, { __mode = "k" })
+		local expired = setmetatable({}, { __mode = "k" })
+		local hazLogged = {}
+		local recent, recentI = {}, 0     -- parts that appeared during the fight (wide detection + miss reports)
+		local DIRS = {}
+		for k = 0, 15 do
+			local a = k * math.pi / 8
+			DIRS[#DIRS + 1] = Vector3.new(math.cos(a), 0, math.sin(a))
 		end
-		for _, n in ipairs({ "AHE_BossAttacks", "AHE_BossUnits", "AHE_Followers", "AHE_Companions", "AHE_Stands" }) do
-			local f = Workspace:FindFirstChild(n)
-			if f then ex[#ex + 1] = f end
-		end
-		if Workspace.CurrentCamera then ex[#ex + 1] = Workspace.CurrentCamera end
-		rp.FilterDescendantsInstances = ex
-	end
 
-	local function underEnemy(inst)
-		local o = inst.Parent
-		while o and o ~= Workspace do
-			if o:IsA("Model") and o:GetAttribute("MaxHP") ~= nil then return true end
-			o = o.Parent
-		end
-		return false
-	end
-
-	local function ground(x, y, z)
-		refreshExclude()
-		local hit = Workspace:Raycast(Vector3.new(x, y + 9, z), Vector3.new(0, -49, 0), rp)
-		if not hit or underEnemy(hit.Instance) then return nil end
-		return hit.Position
-	end
-
-	local function standOffset(hrp, hum)
-		if hum.RigType == Enum.HumanoidRigType.R15 then return hum.HipHeight + hrp.Size.Y / 2 end
-		return 3
-	end
-
-	local function floorY(hrp, hum)
-		local now = os.clock()
-		if now - D.floorAt > 0.25 and hum.FloorMaterial ~= Enum.Material.Air then
-			D.floorAt = now
-			local g = ground(hrp.Position.X, hrp.Position.Y - standOffset(hrp, hum), hrp.Position.Z)
-			if g then D.lastFloor = g.Y end
-		end
-		return D.lastFloor
-	end
-
-	local function snap(x, z, refY, off)
-		if not refY then return nil end
-		local g = ground(x, refY, z)
-		if not g or g.Y > refY + 6 or g.Y < refY - 15 then return nil end
-		return Vector3.new(x, g.Y + off, z)
-	end
-
-	-- enemies = any model with MaxHP + HP attributes that is not a player
-	local function considerEnemy(m)
-		if m:IsA("Model") and m:GetAttribute("MaxHP") ~= nil and m:GetAttribute("HP") ~= nil
-			and not Players:GetPlayerFromCharacter(m) then
-			D.enemies[m] = true
-		end
-	end
-
-	local onBossAttack
-	local function hookEnemyAnims(m)
-		if animHooked[m] then return end
-		local an = m:FindFirstChildWhichIsA("Animator", true)
-		if not an then return end
-		animHooked[m] = true
-		track(an.AnimationPlayed:Connect(function(t)
-			local nm = ""
-			pcall(function() nm = string.lower(t.Name .. " " .. (t.Animation and t.Animation.Name or "")) end)
-			for _, w in ipairs(ANIM_SKIP) do
-				if string.find(nm, w, 1, true) then return end
+		local function hasAny(s, list)
+			for _, w in ipairs(list) do
+				if string.find(s, w, 1, true) then return true end
 			end
-			local isAttack = false
-			local pr = t.Priority
-			if pr == Enum.AnimationPriority.Action or pr == Enum.AnimationPriority.Action2
-				or pr == Enum.AnimationPriority.Action3 or pr == Enum.AnimationPriority.Action4 then
-				isAttack = true
+			return false
+		end
+
+		------------ floor
+		local rp = RaycastParams.new()
+		rp.FilterType = Enum.RaycastFilterType.Exclude
+		pcall(function() rp.RespectCanCollide = true end)
+		local exAt = -100
+		local function refreshExclude()
+			if os.clock() - exAt < 2 then return end
+			exAt = os.clock()
+			local ex = {}
+			for _, p in ipairs(Players:GetPlayers()) do
+				if p.Character then ex[#ex + 1] = p.Character end
 			end
-			for _, w in ipairs(ANIM_ATTACK) do
-				if string.find(nm, w, 1, true) then isAttack = true break end
+			for _, n in ipairs({ "AHE_BossAttacks", "AHE_BossUnits", "AHE_Followers", "AHE_Companions", "AHE_Stands", "AHE_HitFX",
+				"AHE_SurukaFX", "AHE_SkeletonDragonFX", "AHE_ObitoFX" }) do
+				local f = Workspace:FindFirstChild(n)
+				if f then ex[#ex + 1] = f end
 			end
-			if isAttack and onBossAttack then onBossAttack(m, nm) end
-		end))
-	end
+			if Workspace.CurrentCamera then ex[#ex + 1] = Workspace.CurrentCamera end
+			rp.FilterDescendantsInstances = ex
+		end
 
-	local function refreshEnemies()
-		local pts = {}
-		for m in pairs(D.enemies) do
-			if not m.Parent then
-				D.enemies[m] = nil
-			elseif (m:GetAttribute("HP") or 0) > 0 then
-				local p = posOf(m)
-				if p then pts[#pts + 1] = { m = m, p = p } end
+		local function underEnemy(inst)
+			local o = inst.Parent
+			while o and o ~= Workspace do
+				if o:IsA("Model") and o:GetAttribute("MaxHP") ~= nil then return true end
+				o = o.Parent
 			end
+			return false
 		end
-		D.pts = pts
-		local _, hrp = getChar()
-		local near = false
-		if hrp then
-			for _, e in ipairs(pts) do
-				if (e.p - hrp.Position).Magnitude <= 250 then
-					near = true
-					hookEnemyAnims(e.m)
-				end
-			end
-		end
-		D.combat = near
-	end
 
-	local function nearestEnemy(pos)
-		local bm, bp, bd
-		for _, e in ipairs(D.pts) do
-			local d = (e.p - pos).Magnitude
-			if not bd or d < bd then bm, bp, bd = e.m, e.p, d end
+		local function ground(x, y, z)
+			refreshExclude()
+			local hit = Workspace:Raycast(Vector3.new(x, y + 12, z), Vector3.new(0, -60, 0), rp)
+			if not hit or underEnemy(hit.Instance) then return nil end
+			return hit.Position
 		end
-		return bm, bd, bp
-	end
 
-	local function nearBossFlat(pos, within)
-		for _, e in ipairs(D.pts) do
-			if flat(e.p, pos) <= within then return true end
+		local function standOffset(hrp, hum)
+			if hum.RigType == Enum.HumanoidRigType.R15 then return hum.HipHeight + hrp.Size.Y / 2 end
+			return 3
 		end
-		return false
-	end
 
-	-- arena bounds so a dodge never lands outside the fight room
-	local function arenaFor(pos)
-		if os.clock() - D.arenaAt > 10 then
-			D.arenaAt = os.clock()
-			D.arenas = {}
-			for _, r in ipairs(Workspace:GetChildren()) do
-				local c, rad = r:GetAttribute("Center"), r:GetAttribute("Radius")
-				if typeof(c) == "Vector3" and type(rad) == "number" then
-					D.arenas[#D.arenas + 1] = { c = c, r = rad }
-				end
-			end
-		end
-		for _, a in ipairs(D.arenas) do
-			if flat(a.c, pos) <= a.r * 1.25 then return a.c, a.r end
-		end
-	end
-
-	------------ hazards (parts spawned in AHE_BossAttacks)
-	local function rmHaz(part)
-		local h = D.haz[part]
-		if not h then return end
-		D.haz[part] = nil
-		D.hazN = D.hazN - 1
-		if h.box then pcall(function() h.box:Destroy() end) end
-		if h.conn then h.conn:Disconnect() end
-	end
-
-	local function makeBox(h)
-		if h.box or not adorn then return end
-		local b = mk("BoxHandleAdornment", { Adornee = h.part, Size = h.part.Size, AlwaysOnTop = true, ZIndex = 5, Transparency = 0.65,
-			Color3 = h.wave and Color3.fromRGB(255, 200, 40) or Color3.fromRGB(255, 60, 60) }, adorn)
-		h.box = b
-	end
-
-	local stepRef
-	local function addHaz(part)
-		if D.haz[part] or D.hazN >= 40 or not part.Parent then return end
-		local s = part.Size
-		local nm = string.lower(part.Name .. " " .. (part.Parent and part.Parent.Name or ""))
-		local named = false
-		for _, w in ipairs(WAVE_WORDS) do
-			if string.find(nm, w, 1, true) then named = true break end
-		end
-		local h = { part = part, born = os.clock(), last = part.Position, vel = Vector3.zero, size0 = math.max(s.X, s.Y, s.Z),
-			grow = 0, rate = 0, waveNamed = named, wave = false, radius = 0 }
-		D.haz[part] = h
-		D.hazN = D.hazN + 1
-		h.conn = part.AncestryChanged:Connect(function()
-			if not part:IsDescendantOf(Workspace) then rmHaz(part) end
-		end)
-		if cfg.ShowHazards then makeBox(h) end
-		note(string.format("HAZ %s size=(%.0f,%.0f,%.0f)", part.Name, s.X, s.Y, s.Z))
-		if stepRef then pcall(stepRef, 0) end
-	end
-
-	-- horizontal radius + is-it-flat
-	local function footprint(part)
-		local s = part.Size
-		local shape = part:IsA("Part") and part.Shape or nil
-		if shape == Enum.PartType.Cylinder then
-			local r = math.max(s.Y, s.Z) / 2
-			return r, s.X < r * 0.5
-		end
-		local ax = { s.X, s.Y, s.Z }
-		local mn = 1
-		if ax[2] < ax[mn] then mn = 2 end
-		if ax[3] < ax[mn] then mn = 3 end
-		local big = 0
-		for i = 1, 3 do if i ~= mn and ax[i] > big then big = ax[i] end end
-		return big / 2, ax[mn] < 4
-	end
-
-	local function inside(part, pos, margin)
-		local s = part.Size
-		local rel = part.CFrame:PointToObjectSpace(pos)
-		local shape = part:IsA("Part") and part.Shape or nil
-		local vr = 10
-		if shape == Enum.PartType.Ball then
-			return rel.Magnitude <= math.max(s.X, s.Y, s.Z) / 2 + margin
-		end
-		if shape == Enum.PartType.Cylinder then
-			local r = math.max(s.Y, s.Z) / 2
-			local radial = math.sqrt(rel.Y * rel.Y + rel.Z * rel.Z)
-			local halfH = (s.X < r) and (s.X / 2 + vr) or (s.X / 2 + margin)
-			return radial <= r + margin and math.abs(rel.X) <= halfH
-		end
-		local ax = { s.X, s.Y, s.Z }
-		local rl = { rel.X, rel.Y, rel.Z }
-		local mn = 1
-		if ax[2] < ax[mn] then mn = 2 end
-		if ax[3] < ax[mn] then mn = 3 end
-		if ax[mn] < 3 then -- flat telegraph: generous vertical reach
-			if math.abs(rl[mn]) > ax[mn] / 2 + vr then return false end
-			local i, j = 2, 3
-			if mn == 2 then i, j = 1, 3 elseif mn == 3 then i, j = 1, 2 end
-			return math.abs(rl[i]) <= ax[i] / 2 + margin and math.abs(rl[j]) <= ax[j] / 2 + margin
-		end
-		return math.abs(rl[1]) <= ax[1] / 2 + margin and math.abs(rl[2]) <= ax[2] / 2 + margin and math.abs(rl[3]) <= ax[3] / 2 + margin
-	end
-
-	local function addZone(c, r, life)
-		D.zones[#D.zones + 1] = { center = c, r = r, untilT = os.clock() + life }
-	end
-
-	-- ground hazards + melee zones; 360 waves are handled by floating
-	local function danger(pos, margin)
-		if #D.zones > 0 then
+		local function floorY(hrp, hum)
 			local now = os.clock()
-			for i = #D.zones, 1, -1 do
-				local z = D.zones[i]
-				if now > z.untilT then
-					table.remove(D.zones, i)
-				elseif flat(pos, z.center) <= z.r + margin and math.abs(pos.Y - z.center.Y) < 30 then
-					return true, z.center
+			if now - D.floorAt > 0.25 and hum.FloorMaterial ~= Enum.Material.Air then
+				D.floorAt = now
+				local g = ground(hrp.Position.X, hrp.Position.Y - standOffset(hrp, hum), hrp.Position.Z)
+				if g then D.lastFloor = g.Y end
+			end
+			return D.lastFloor
+		end
+
+		local function snap(x, z, refY, off)
+			if not refY then return nil end
+			local g = ground(x, refY, z)
+			if not g or g.Y > refY + 10 or g.Y < refY - 25 then return nil end
+			return Vector3.new(x, g.Y + off, z)
+		end
+
+		------------ who owns a part
+		local function ownerKind(inst)
+			local o = inst.Parent
+			while o and o ~= Workspace do
+				if EXCL[o.Name] then return "excl" end
+				if o:IsA("Model") then
+					if Players:GetPlayerFromCharacter(o) then return "player" end
+					if o:GetAttribute("MaxHP") ~= nil then return "enemy" end
 				end
+				o = o.Parent
+			end
+			return nil
+		end
+
+		local function topName(inst)
+			local o = inst
+			while o.Parent and o.Parent ~= Workspace do o = o.Parent end
+			return o.Name
+		end
+
+		------------ enemies = any model with MaxHP + HP attributes that is not a player
+		local function considerEnemy(m)
+			if m:IsA("Model") and m:GetAttribute("MaxHP") ~= nil and m:GetAttribute("HP") ~= nil
+				and not Players:GetPlayerFromCharacter(m) then
+				D.enemies[m] = true
 			end
 		end
-		for part, h in pairs(D.haz) do
-			if not h.wave and part.Parent then
-				local m = margin + h.grow
-				if inside(part, pos, m) then return true, part.Position end
-				if h.vel.Magnitude > 8 then
-					for k = 1, 3 do
-						if inside(part, pos - h.vel * (0.45 * k / 3), m) then return true, part.Position end
+
+		local onBossAttack
+		local function hookEnemyAnims(m)
+			if animHooked[m] then return end
+			local an = m:FindFirstChildWhichIsA("Animator", true)
+			if not an then return end
+			animHooked[m] = true
+			track(an.AnimationPlayed:Connect(function(t)
+				local nm = ""
+				pcall(function() nm = string.lower(t.Name .. " " .. (t.Animation and t.Animation.Name or "")) end)
+				if hasAny(nm, ANIM_SKIP) then return end
+				local isAttack = hasAny(nm, ANIM_ATTACK)
+				local pr = t.Priority
+				if pr == Enum.AnimationPriority.Action or pr == Enum.AnimationPriority.Action2
+					or pr == Enum.AnimationPriority.Action3 or pr == Enum.AnimationPriority.Action4 then
+					isAttack = true
+				end
+				if isAttack and onBossAttack then onBossAttack(m, nm) end
+			end))
+		end
+
+		local function refreshEnemies()
+			local pts = {}
+			for m in pairs(D.enemies) do
+				if not m.Parent then
+					D.enemies[m] = nil
+				elseif (m:GetAttribute("HP") or 0) > 0 then
+					local p = posOf(m)
+					if p then pts[#pts + 1] = { m = m, p = p } end
+				end
+			end
+			D.pts = pts
+			local _, hrp = getChar()
+			local near = false
+			if hrp then
+				for _, e in ipairs(pts) do
+					if (e.p - hrp.Position).Magnitude <= 250 then
+						near = true
+						hookEnemyAnims(e.m)
 					end
 				end
 			end
+			D.combat = near
 		end
-		return false
-	end
 
-	local waveAt = 0
-	local function updateHazards(dt)
-		if D.hazN == 0 then return end
-		local now = os.clock()
-		local doWave = now - waveAt > 0.1
-		if doWave then waveAt = now end
-		for part, h in pairs(D.haz) do
-			if not part.Parent then
-				rmHaz(part)
+		nearestEnemy = function(pos)
+			local bm, bp, bd
+			for _, e in ipairs(D.pts) do
+				local d = (e.p - pos).Magnitude
+				if not bd or d < bd then bm, bp, bd = e.m, e.p, d end
+			end
+			return bm, bd, bp
+		end
+
+		local function nearBossFlat(pos, within)
+			for _, e in ipairs(D.pts) do
+				if flat(e.p, pos) <= within + (e.m:GetAttribute("UnitRadius") or 0) then return true end
+			end
+			return false
+		end
+
+		-- arena bounds so a ground dodge stays inside the fight room when it can
+		local function arenaFor(pos)
+			if os.clock() - D.arenaAt > 10 then
+				D.arenaAt = os.clock()
+				D.arenas = {}
+				for _, r in ipairs(Workspace:GetChildren()) do
+					local c, rad = r:GetAttribute("Center"), r:GetAttribute("Radius")
+					if typeof(c) == "Vector3" and type(rad) == "number" then
+						D.arenas[#D.arenas + 1] = { c = c, r = rad }
+					end
+				end
+			end
+			for _, a in ipairs(D.arenas) do
+				if flat(a.c, pos) <= a.r * 1.25 then return a.c, a.r end
+			end
+		end
+
+		------------ hazards
+		rmHaz = function(part)
+			local h = D.haz[part]
+			if not h then return end
+			D.haz[part] = nil
+			D.hazN = D.hazN - 1
+			if h.box then pcall(function() h.box:Destroy() end) end
+			if h.conn then h.conn:Disconnect() end
+		end
+
+		makeBox = function(h)
+			if h.box or not adorn then return end
+			h.box = mk("BoxHandleAdornment", { Adornee = h.part, Size = h.size, AlwaysOnTop = true, ZIndex = 5, Transparency = 0.65,
+				Color3 = h.wave and Color3.fromRGB(255, 200, 40) or Color3.fromRGB(255, 60, 60) }, adorn)
+		end
+
+		local function readAttrR(inst)
+			for _, k in ipairs(R_KEYS) do
+				local v = inst:GetAttribute(k)
+				if type(v) == "number" and v >= 2 and v <= 500 then return v end
+			end
+			return nil
+		end
+
+		-- real size: a tiny part with a scaled SpecialMesh is as big as the mesh
+		local function measure(h)
+			local part = h.part
+			local s = part.Size
+			local m = h.mesh
+			if m and m.Parent == part then
+				local sc = m.Scale
+				if m.MeshType == Enum.MeshType.FileMesh then
+					s = Vector3.new(math.min(math.max(s.X, sc.X * 2), 400), math.min(math.max(s.Y, sc.Y * 2), 400), math.min(math.max(s.Z, sc.Z * 2), 400))
+				else
+					s = Vector3.new(s.X * sc.X, s.Y * sc.Y, s.Z * sc.Z)
+				end
+			end
+			h.size = s
+			return math.max(s.X, s.Y, s.Z)
+		end
+
+		-- horizontal radius + "is it a flat disc / plate"
+		local function footprint(h)
+			local s = h.size
+			local r, isFlat
+			if h.shape == CYL then
+				r = math.max(s.Y, s.Z) / 2
+				isFlat = s.X < r * 0.5
+			elseif h.shape == BALL then
+				r = math.max(s.X, s.Y, s.Z) / 2
+				isFlat = false
 			else
-				local p = part.Position
-				local v = dt > 0 and (p - h.last) / dt or h.vel
-				if not part.Anchored then
-					local av = part.AssemblyLinearVelocity
-					if av.Magnitude > v.Magnitude then v = av end
-				end
-				h.vel = h.vel:Lerp(v, 0.5)
-				h.last = p
-				local s = part.Size
-				local age = math.max(now - h.born, 0.05)
-				h.rate = math.max(0, (math.max(s.X, s.Y, s.Z) - h.size0) / age)
-				h.grow = math.clamp(h.rate * 0.45 * 0.5, 0, 15)
-				if doWave then
-					local r, isFlat = footprint(part)
-					h.radius = r
-					local was = h.wave
-					h.wave = (h.waveNamed and nearBossFlat(p, 20)) or (isFlat and nearBossFlat(p, 15) and (r >= 25 or h.rate > 15))
-					if h.wave and not was then
-						note(string.format("WAVE r=%.0f rate=%.0f", r, h.rate))
-						if h.box then h.box.Color3 = Color3.fromRGB(255, 200, 40) end
-					end
-					if h.box then h.box.Size = s end
-				end
+				local mn = math.min(s.X, s.Y, s.Z)
+				local mx = math.max(s.X, s.Y, s.Z)
+				local mid = s.X + s.Y + s.Z - mn - mx
+				r = mx / 2
+				isFlat = (mn < 4 or mn < mx * 0.2) and mid >= mx * 0.5
 			end
+			if h.attrR and h.attrR > r then
+				r = h.attrR
+				isFlat = true
+			end
+			return r, isFlat
 		end
-	end
 
-	local function waveThreat(pos)
-		for part, h in pairs(D.haz) do
-			if h.wave and part.Parent then
+		local function inside(h, pos, margin)
+			local part = h.part
+			local s = h.size
+			local big = h.big
+			local sr = h.attrR or (big < 1.5 and h.minR or nil)
+			if sr then
 				local c = part.Position
-				if flat(pos, c) <= h.radius + cfg.Margin + h.rate * 0.6 and math.abs(pos.Y - c.Y) < 20 then return true end
+				if flat(pos, c) <= sr + margin and math.abs(pos.Y - c.Y) <= math.max(VR, sr) then return true end
 			end
+			if big < 1.5 then return false end
+			local rel = part.CFrame:PointToObjectSpace(pos)
+			if h.shape == BALL then
+				return rel.Magnitude <= big / 2 + margin
+			end
+			if h.shape == CYL then
+				local r = math.max(s.Y, s.Z) / 2
+				local radial = math.sqrt(rel.Y * rel.Y + rel.Z * rel.Z)
+				local halfH = (s.X < r) and (s.X / 2 + VR) or (s.X / 2 + margin)
+				return radial <= r + margin and math.abs(rel.X) <= halfH
+			end
+			local ax = { s.X, s.Y, s.Z }
+			local rl = { rel.X, rel.Y, rel.Z }
+			local mn = 1
+			if ax[2] < ax[mn] then mn = 2 end
+			if ax[3] < ax[mn] then mn = 3 end
+			if ax[mn] < 3 then -- flat telegraph: generous reach through its thin axis
+				if math.abs(rl[mn]) > ax[mn] / 2 + VR then return false end
+				local i, j = 2, 3
+				if mn == 2 then i, j = 1, 3 elseif mn == 3 then i, j = 1, 2 end
+				return math.abs(rl[i]) <= ax[i] / 2 + margin and math.abs(rl[j]) <= ax[j] / 2 + margin
+			end
+			return math.abs(rl[1]) <= ax[1] / 2 + margin and math.abs(rl[2]) <= ax[2] / 2 + margin and math.abs(rl[3]) <= ax[3] / 2 + margin
 		end
-		return false
-	end
 
-	local function anyWave()
-		for part, h in pairs(D.haz) do
-			if h.wave and part.Parent then return true end
+		local function addZone(c, r, life)
+			D.zones[#D.zones + 1] = { center = c, r = r, untilT = os.clock() + life }
+			D.lastHazAt = os.clock()
 		end
-		return false
-	end
 
-	local function findSafe(pos, threat, refY, off, ignoreArena)
-		if not refY then return nil end
-		local ac, ar
-		if not ignoreArena then ac, ar = arenaFor(pos) end
-		local _, _, bp = nearestEnemy(pos)
-		local away
-		if threat then
-			local d = Vector3.new(pos.X - threat.X, 0, pos.Z - threat.Z)
-			if d.Magnitude > 0.5 then away = d.Unit end
-		end
-		local need = cfg.Margin + 4
-		local dist = cfg.MinDodge
-		while dist <= 70 do
-			local cands = {}
-			for _, dir in ipairs(DIRS) do
-				local x, z = pos.X + dir.X * dist, pos.Z + dir.Z * dist
-				if (not ac or flat(ac, Vector3.new(x, 0, z)) <= ar - 5) and not danger(Vector3.new(x, refY + off, z), need) then
-					local score = 0
-					if away then score = score + (1 - dir:Dot(away)) * 10 end
-					if bp then
-						local db = flat(bp, Vector3.new(x, 0, z))
-						if db > 45 then score = score + (db - 45) * 0.5 end
-					end
-					cands[#cands + 1] = { x = x, z = z, s = score }
+		local stepRef
+		local lastImmediate, inStep = 0, false
+		local function addHaz(part, src, life)
+			if D.haz[part] or expired[part] or not part.Parent then return end
+			if D.hazN >= MAX_HAZ then -- full: drop the oldest instead of ignoring the new one
+				local oldest, ot
+				for p, h in pairs(D.haz) do
+					if not ot or h.born < ot then oldest, ot = p, h.born end
+				end
+				if oldest then
+					expired[oldest] = true
+					rmHaz(oldest)
 				end
 			end
-			table.sort(cands, function(a, b) return a.s < b.s end)
-			for i = 1, math.min(#cands, 4) do
-				local p = snap(cands[i].x, cands[i].z, refY, off)
-				if p then return p end
+			local now = os.clock()
+			local parent = part.Parent
+			local nm = string.lower(part.Name .. " " .. (parent and parent.Name or ""))
+			local shape = part:IsA("Part") and part.Shape or nil
+			local mesh = part:FindFirstChildOfClass("SpecialMesh")
+			if mesh and mesh.MeshType == Enum.MeshType.Sphere then shape = BALL end
+			local attrR = readAttrR(part)
+			if not attrR and src == "folder" and parent and parent.Name ~= "AHE_BossAttacks" then attrR = readAttrR(parent) end
+			local h = { part = part, src = src, born = now, expire = life and (now + life) or nil, last = part.Position, vel = Vector3.zero, speed = 0,
+				size = part.Size, big = 0, rate = 0, grow = 0, waveNamed = hasAny(nm, WAVE_WORDS), wave = false, radius = 0, flat = false,
+				shape = shape, mesh = mesh, attrR = attrR, minR = nil }
+			h.big = measure(h)
+			h.radius, h.flat = footprint(h)
+			D.haz[part] = h
+			D.hazN = D.hazN + 1
+			D.lastHazAt = now
+			h.conn = part.AncestryChanged:Connect(function()
+				if not part:IsDescendantOf(Workspace) then rmHaz(part) end
+			end)
+			if cfg.ShowHazards then makeBox(h) end
+			local key = src .. ":" .. part.Name
+			hazLogged[key] = (hazLogged[key] or 0) + 1
+			if hazLogged[key] <= 3 then
+				note(string.format("HAZ[%s] %s size=(%.0f,%.0f,%.0f)%s", src, part:GetFullName(), h.size.X, h.size.Y, h.size.Z, attrR and (" attrR=" .. attrR) or ""))
 			end
-			dist = dist + 8
+			if stepRef and not inStep and now - lastImmediate > 0.03 then
+				lastImmediate = now
+				pcall(stepRef, 0)
+			end
 		end
-		if not ignoreArena then return findSafe(pos, threat, refY, off, true) end
-		return nil
-	end
 
-	local function step(dt)
-		updateHazards(dt)
-		local _, hrp, hum = getChar()
-		if not hrp then
-			D.lastHp, D.origin, D.float, D.lastFloor = nil, nil, nil, nil
-			return
+		-- every known hazard / zone. withWaves = also count 360 waves; k scales how far ahead growth is predicted
+		local function danger(pos, margin, withWaves, k)
+			k = k or 1
+			if #D.zones > 0 then
+				local now = os.clock()
+				for i = #D.zones, 1, -1 do
+					local z = D.zones[i]
+					if now > z.untilT then
+						table.remove(D.zones, i)
+					elseif flat(pos, z.center) <= z.r + margin and math.abs(pos.Y - z.center.Y) < math.max(30, z.r) then
+						return true, z.center
+					end
+				end
+			end
+			for part, h in pairs(D.haz) do
+				if part.Parent and (withWaves or not h.wave) then
+					local m = margin + h.grow * k
+					if inside(h, pos, m) then return true, part.Position, h end
+					if h.speed > 8 then -- moving hazard / projectile: where it will be over the next 0.6 s
+						local v = h.vel
+						for i = 1, 4 do
+							if inside(h, pos - v * (0.15 * i), m) then return true, part.Position, h end
+						end
+					end
+				end
+			end
+			return false
 		end
-		if not cfg.Dodge then
-			D.float = nil
-			D.lastHp = hum.Health
-			return
-		end
-		-- nothing to react to: skip raycasts / scans this frame
-		if not D.float and not D.origin and D.hazN == 0 and #D.zones == 0 and not D.combat then
-			D.lastHp = hum.Health
-			return
-		end
-		local refY = floorY(hrp, hum)
-		local now = os.clock()
 
-		-- floating over a 360 wave
-		local f = D.float
-		if f then
-			if anyWave() then f.untilT = math.max(f.untilT, now + 0.2) end
-			if now >= f.untilT or now >= f.maxT then
-				D.float = nil
-				hrp.AssemblyLinearVelocity = Vector3.new(0, -30, 0)
+		local tickAt = 0
+		local function updateHazards(dt)
+			if D.hazN == 0 then return end
+			local now = os.clock()
+			local slow = now - tickAt > 0.1
+			if slow then tickAt = now end
+			for part, h in pairs(D.haz) do
+				if not part.Parent then
+					rmHaz(part)
+				elseif h.expire and now > h.expire then
+					expired[part] = true
+					rmHaz(part)
+				else
+					local p = part.Position
+					if dt > 0 then
+						local v = (p - h.last) / dt
+						if not part.Anchored then
+							local av = part.AssemblyLinearVelocity
+							if av.Magnitude > v.Magnitude then v = av end
+						end
+						if v.Magnitude > 400 then v = v.Unit * 400 end
+						h.vel = h.vel:Lerp(v, 0.5)
+						h.speed = h.vel.Magnitude
+						h.last = p
+						local big = measure(h)
+						local r = (big - h.big) / dt
+						h.big = big
+						if r < 0 then r = 0 end
+						h.rate = h.rate + (r - h.rate) * 0.35
+					end
+					h.grow = math.clamp(h.rate * 0.3, 0, 40)
+					if slow then
+						local age = now - h.born
+						if age < 1.5 then
+							if not h.mesh then
+								h.mesh = part:FindFirstChildOfClass("SpecialMesh")
+								if h.mesh and h.mesh.MeshType == Enum.MeshType.Sphere then h.shape = BALL end
+							end
+							if not h.attrR then h.attrR = readAttrR(part) end
+							if h.big < 1.5 and not h.minR and age > 0.3 and h.src == "folder"
+								and (part:FindFirstChildWhichIsA("ParticleEmitter", true) or part:FindFirstChildWhichIsA("Beam", true)) then
+								h.minR = 8 -- invisible emitter part: treat it as a small circle
+							end
+						end
+						local r, isFlat = footprint(h)
+						h.radius, h.flat = r, isFlat
+						local was = h.wave
+						h.wave = nearBossFlat(p, 22)
+							and (h.waveNamed or (isFlat and (r >= 25 or h.rate > 15)) or (h.shape == BALL and h.rate > 10)) or false
+						if h.wave and not was then
+							note(string.format("WAVE %s r=%.0f rate=%.0f", part.Name, r, h.rate))
+							if h.box then h.box.Color3 = Color3.fromRGB(255, 200, 40) end
+						end
+						if h.box then h.box.Size = h.size end
+					end
+				end
+			end
+		end
+
+		local function waveThreat(pos)
+			for part, h in pairs(D.haz) do
+				if h.wave and part.Parent then
+					local c = part.Position
+					if flat(pos, c) <= h.radius + cfg.Margin + math.min(h.rate * 0.5, 150) and math.abs(pos.Y - c.Y) < math.max(30, h.radius) then
+						return true
+					end
+				end
+			end
+			return false
+		end
+
+		-- how high above the floor you must be to be out of this hazard
+		local function clearHeight(h, baseY, gpos)
+			local part = h.part
+			local cf, s = part.CFrame, h.size
+			local ext = (math.abs(cf.RightVector.Y) * s.X + math.abs(cf.UpVector.Y) * s.Y + math.abs(cf.LookVector.Y) * s.Z) / 2
+			local top = part.Position.Y + ext - baseY
+			if h.flat then
+				-- servers often test plain 3d distance to the centre, so the height has to beat the radius
+				local R = h.radius + math.min(h.rate * 0.5, 150) + 8
+				local d = flat(gpos, part.Position)
+				return math.max(math.sqrt(math.max(R * R - d * d, 0)), top + VR + 6)
+			end
+			return math.max(top + 10, 0)
+		end
+
+		local function needHeight(gpos, baseY)
+			local H = cfg.FloatMin
+			local m = cfg.Margin + 4
+			for part, h in pairs(D.haz) do
+				if part.Parent and (h.big >= 1.5 or h.attrR or h.minR) then
+					if flat(gpos, part.Position) <= h.radius + m + math.min(h.rate * 0.5, 150) then
+						local ch = clearHeight(h, baseY, gpos)
+						if ch > H then H = ch end
+					end
+				end
+			end
+			for _, z in ipairs(D.zones) do
+				if flat(gpos, z.center) <= z.r + m and z.r + 8 > H then H = z.r + 8 end
+			end
+			return math.min(H * D.boost, 600)
+		end
+
+		local function findSafe(pos, threat, refY, off, ignoreArena, hz)
+			if not refY then return nil end
+			local side -- a moving hazard is dodged sideways, not along its path
+			if hz and hz.speed > 8 then
+				local v = Vector3.new(hz.vel.X, 0, hz.vel.Z)
+				if v.Magnitude > 1 then side = v.Unit end
+			end
+			local ac, ar
+			if not ignoreArena then ac, ar = arenaFor(pos) end
+			local away
+			if threat then
+				local d = Vector3.new(pos.X - threat.X, 0, pos.Z - threat.Z)
+				if d.Magnitude > 0.5 then away = d.Unit end
+			end
+			local need = cfg.Margin + 6
+			local y = refY + off
+			local dist = cfg.MinDodge
+			while dist <= MAX_SEARCH do
+				local cands = {}
+				for _, dir in ipairs(DIRS) do
+					local x, z = pos.X + dir.X * dist, pos.Z + dir.Z * dist
+					if (not ac or flat(ac, Vector3.new(x, 0, z)) <= ar - 4) and not danger(Vector3.new(x, y, z), need, true, 2) then
+						cands[#cands + 1] = { x = x, z = z, s = side and math.abs(dir:Dot(side)) or (away and (1 - dir:Dot(away)) or 0) }
+					end
+				end
+				if #cands > 0 then
+					table.sort(cands, function(a, b) return a.s < b.s end)
+					for i = 1, math.min(#cands, 5) do
+						local p = snap(cands[i].x, cands[i].z, refY, off)
+						if p then return p end
+					end
+				end
+				dist = dist + 10
+			end
+			return nil
+		end
+
+		local function startFloat(hrp, pos, refY, off, why)
+			local now = os.clock()
+			local baseY = refY and (refY + off) or pos.Y
+			local g = Vector3.new(pos.X, baseY, pos.Z)
+			local H = needHeight(g, baseY)
+			D.float = { ground = g, baseY = baseY, off = off, pos = Vector3.new(pos.X, baseY + H, pos.Z), t0 = now, hits = 0, lastBoost = 0, clearAt = nil }
+			D.floats = D.floats + 1
+			D.lastDodge = now
+			hrp.CFrame = CFrame.new(D.float.pos) * hrp.CFrame.Rotation
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			status = string.format("%s -> float +%.0f studs (#%d)", why, H, D.floats)
+		end
+
+		------------ wide detection: attack parts that are not inside AHE_BossAttacks
+		local function classifyWide(part, now, hrpPos)
+			if D.haz[part] or expired[part] or not part.Parent then return true end
+			if part.CanCollide then return true end
+			if (part.Position - hrpPos).Magnitude > 300 then return true end
+			local s = part.Size
+			local big = math.max(s.X, s.Y, s.Z)
+			local mesh = part:FindFirstChildOfClass("SpecialMesh")
+			if mesh then big = math.max(big, mesh.Scale.Magnitude) end
+			if big < 3 then return false end -- may still be growing, look again
+			local top = topName(part)
+			local src
+			if FX_FOLDERS[top] then
+				if big >= 6 then src = "fx" end
+			elseif (D.learned[top .. "/" .. part.Name] or 0) >= 2 then
+				src = "learned"
 			else
-				hrp.CFrame = CFrame.new(f.pos) * hrp.CFrame.Rotation
-				hrp.AssemblyLinearVelocity = Vector3.zero
+				local parent = part.Parent
+				if hasAny(string.lower(part.Name .. " " .. (parent and parent.Name or "")), HAZ_WORDS) then
+					src = "name"
+				elseif big >= 8 and now - D.lastCast <= 1.2 and now - (stat.ownSkillAt or -100) > 1 then
+					src = "cast"
+				end
+			end
+			if not src then return big >= 8 end
+			local kind = ownerKind(part)
+			if kind == "player" or kind == "excl" then return true end
+			addHaz(part, src, 6)
+			return true
+		end
+
+		local function processRecent(now, hrpPos)
+			if not cfg.WideDetect then return end
+			for i = 1, #recent do
+				local r = recent[i]
+				if r.n < 3 then
+					local age = now - r.t
+					if age > 1 then
+						r.n = 3
+					elseif r.n == 0 or (r.n == 1 and age >= 0.12) or (r.n == 2 and age >= 0.4) then
+						r.n = r.n + 1
+						local ok, done = pcall(classifyWide, r.p, now, hrpPos)
+						if not ok or done then r.n = 3 end
+					end
+				end
+			end
+		end
+
+		-- a hit nothing predicted: write down what appeared around you so the detector can be fixed / can learn
+		local function logMiss(pos, lost)
+			local now = os.clock()
+			local bm = nearestEnemy(pos)
+			note(string.format("MISS #%d  hp -%.0f%%  hazards=%d zones=%d  boss=%s", D.misses, lost * 100, D.hazN, #D.zones, bm and bm.Name or "?"))
+			local n, seen = 0, {}
+			for i = 1, #recent do
+				local r = recent[i]
+				local p = r.p
+				if p.Parent and now - r.t <= 2.5 and (p.Position - pos).Magnitude <= 90 then
+					local kind = ownerKind(p)
+					if kind ~= "player" then
+						n = n + 1
+						local s = p.Size
+						if n <= 12 then
+							note(string.format("   suspect %s [%s] size=(%.0f,%.0f,%.0f) age=%.1f %s%s", p:GetFullName(), p.ClassName, s.X, s.Y, s.Z,
+								now - r.t, kind or "", D.haz[p] and " (was tracked)" or ""))
+						end
+						if cfg.LearnHits and kind ~= "excl" and not D.haz[p] and not GENERIC[p.Name] and not p.CanCollide
+							and now - r.t <= 1.5 and math.max(s.X, s.Y, s.Z) >= 4 then
+							local key = topName(p) .. "/" .. p.Name
+							if not seen[key] then
+								seen[key] = true
+								local c = (D.learned[key] or 0) + 1
+								D.learned[key] = c
+								if c == 2 then
+									D.learnedN = D.learnedN + 1
+									note("LEARNED hazard source: " .. key)
+								end
+							end
+						end
+					end
+				end
+			end
+			if n == 0 then note("   nothing new appeared near you (melee / server-only hitbox)") end
+		end
+
+		resetDodgeLearning = function()
+			D.boost, D.far, D.learned, D.learnedN = 1, false, {}, 0
+		end
+
+		------------ per frame
+		local function step(dt)
+			updateHazards(dt)
+			local _, hrp, hum = getChar()
+			if not hrp then
+				D.lastHp, D.origin, D.float, D.lastFloor = nil, nil, nil, nil
+				return
+			end
+			if not cfg.Dodge then
+				D.float = nil
 				D.lastHp = hum.Health
 				return
 			end
-		end
+			local now = os.clock()
+			-- nothing to react to: skip raycasts / scans this frame
+			if not D.float and not D.origin and D.hazN == 0 and #D.zones == 0 and not D.combat and now - D.lastHazAt > 15 then
+				D.lastHp = hum.Health
+				return
+			end
+			if dt > 0 then
+				inStep = true
+				pcall(processRecent, now, hrp.Position)
+				inStep = false
+			end
+			local refY = floorY(hrp, hum)
+			local off = standOffset(hrp, hum)
+			local hp, maxHp = hum.Health, hum.MaxHealth
+			local lost = (D.lastHp and maxHp > 0) and (D.lastHp - hp) / maxHp or 0
+			D.lastHp = hp
 
-		local pos, off = hrp.Position, standOffset(hrp, hum)
-
-		if cfg.WaveFloat and D.hazN > 0 and waveThreat(pos) then
-			local baseY = refY and (refY + off) or pos.Y
-			D.float = { pos = Vector3.new(pos.X, baseY + 25, pos.Z), untilT = now + 1.2, maxT = now + 3 }
-			D.floats = D.floats + 1
-			hrp.CFrame = CFrame.new(D.float.pos) * hrp.CFrame.Rotation
-			hrp.AssemblyLinearVelocity = Vector3.zero
-			status = "360 wave -> float #" .. D.floats
-			D.lastHp = hum.Health
-			return
-		end
-
-		local inDanger, threat = false, nil
-		if D.hazN > 0 or #D.zones > 0 then inDanger, threat = danger(pos, cfg.Margin) end
-
-		if inDanger then
-			D.safeSince = 0
-			if now - D.lastDodge > 0.08 then
+			-- in the air above a skill
+			local f = D.float
+			if f then
 				D.lastDodge = now
-				local tgt = findSafe(pos, threat, refY, off)
-				if tgt then
-					if not D.origin and refY then D.origin = Vector3.new(pos.X, refY + off, pos.Z) end
-					D.dodges = D.dodges + 1
-					tp(tgt)
-					status = string.format("dodge #%d  %.0f studs", D.dodges, flat(pos, tgt))
+				local H = needHeight(f.ground, f.baseY)
+				if f.baseY + H > f.pos.Y then f.pos = Vector3.new(f.pos.X, f.baseY + H, f.pos.Z) end
+				local threatened, threat = danger(f.ground, cfg.Margin + 4, true, 1.5)
+				if lost > 0.02 and now - f.t0 > 0.15 and now - f.lastBoost > 0.4 then
+					f.lastBoost = now
+					f.hits = f.hits + 1
+					D.misses = D.misses + 1
+					D.boost = math.min(D.boost * 1.6, 6)
+					note(string.format("HIT while floating at +%.0f -> float height x%.1f", f.pos.Y - f.baseY, D.boost))
+					local H2 = needHeight(f.ground, f.baseY)
+					if f.baseY + H2 > f.pos.Y then f.pos = Vector3.new(f.pos.X, f.baseY + H2, f.pos.Z) end
+					if f.hits >= 2 then
+						if not D.far then
+							D.far = true
+							note("floating does not avoid this skill -> using far ground escape from now on")
+						end
+						local tgt = findSafe(f.ground, threat, f.baseY - f.off, f.off, false) or findSafe(f.ground, threat, f.baseY - f.off, f.off, true)
+						if tgt then
+							if not D.origin then D.origin = f.ground end
+							D.float = nil
+							D.dodges = D.dodges + 1
+							tp(tgt)
+							status = string.format("float failed -> ground escape %.0f studs", flat(f.ground, tgt))
+							return
+						end
+					end
+				end
+				if threatened then f.clearAt = nil elseif not f.clearAt then f.clearAt = now end
+				local age = now - f.t0
+				local land
+				if f.clearAt and now - f.clearAt >= 0.25 and age >= 0.6 then
+					land = f.ground
+				elseif age > 8 then
+					land = findSafe(f.ground, threat, f.baseY - f.off, f.off, false) or findSafe(f.ground, threat, f.baseY - f.off, f.off, true)
+					if not land and age > 20 then land = f.ground end
+				end
+				if land then
+					D.float = nil
+					if land ~= f.ground and not D.origin then D.origin = f.ground end
+					hrp.CFrame = CFrame.new(land) * hrp.CFrame.Rotation
+					hrp.AssemblyLinearVelocity = Vector3.zero
+					status = "skill passed, back on the ground"
 				else
-					status = "no safe floor found"
+					hrp.CFrame = CFrame.new(f.pos) * hrp.CFrame.Rotation
+					hrp.AssemblyLinearVelocity = Vector3.zero
+				end
+				return
+			end
+
+			local pos = hrp.Position
+
+			-- hit bookkeeping
+			local unpredicted = false
+			if lost > 0.03 and now - D.lastMiss > 0.7 and (D.combat or now - D.lastHazAt < 15) then
+				D.lastMiss = now
+				D.misses = D.misses + 1
+				if now - D.lastDodge <= 0.5 then
+					note(string.format("LATE hit %.2f s after a dodge  hp -%.0f%%", now - D.lastDodge, lost * 100))
+				else
+					unpredicted = true
 				end
 			end
-		else
-			-- sudden hp loss with no known hazard (melee / server hitbox): sidestep away from the boss
-			if D.lastHp and hum.MaxHealth > 0 and hum.Health < D.lastHp - hum.MaxHealth * 0.07
-				and now - D.lastHpDodge > 0.8 and D.hazN == 0 and D.combat then
-				D.lastHpDodge = now
-				local _, _, bp = nearestEnemy(pos)
-				local tgt = findSafe(pos, bp, refY, off)
-				if tgt then
-					if not D.origin and refY then D.origin = Vector3.new(pos.X, refY + off, pos.Z) end
+
+			-- 360 wave centred on the boss
+			if D.hazN > 0 and cfg.WaveFloat and not D.far and waveThreat(pos) then
+				startFloat(hrp, pos, refY, off, "360 wave")
+				return
+			end
+
+			local inDanger, threat, hz = false, nil, nil
+			if D.hazN > 0 or #D.zones > 0 then
+				inDanger, threat, hz = danger(pos, cfg.Margin, D.far or not cfg.WaveFloat, 1)
+			end
+
+			if inDanger then
+				D.safeSince = 0
+				if unpredicted then note("   (hit while standing in a known hazard: it was detected too late)") end
+				if now - D.lastDodge > 0.08 then
 					D.lastDodge = now
-					tp(tgt)
-					status = "hp drop -> sidestep"
+					local tgt = findSafe(pos, threat, refY, off, false, hz)
+					if not tgt and D.far then tgt = findSafe(pos, threat, refY, off, true, hz) end
+					if not tgt and cfg.WaveFloat then
+						startFloat(hrp, pos, refY, off, "no safe floor")
+						return
+					end
+					tgt = tgt or findSafe(pos, threat, refY, off, true, hz)
+					if tgt then
+						if not D.origin and refY then D.origin = Vector3.new(pos.X, refY + off, pos.Z) end
+						D.dodges = D.dodges + 1
+						tp(tgt)
+						status = string.format("dodge #%d  %.0f studs", D.dodges, flat(pos, tgt))
+					else
+						status = "no safe floor found"
+					end
 				end
+				return
 			end
+
+			if unpredicted then
+				logMiss(pos, lost)
+				if cfg.HitDodge then
+					local _, _, bp = nearestEnemy(pos)
+					addZone(pos, math.max(cfg.MinDodge * 0.5, 10), 1.2)
+					local tgt = findSafe(pos, bp or pos, refY, off, false) or findSafe(pos, bp or pos, refY, off, true)
+					if tgt then
+						if not D.origin and refY then D.origin = Vector3.new(pos.X, refY + off, pos.Z) end
+						D.lastDodge = now
+						D.safeSince = 0
+						tp(tgt)
+						status = "unpredicted hit -> moved away (see log)"
+					end
+				end
+				return
+			end
+
 			if D.origin then
-				if flat(pos, D.origin) > 150 then
+				if flat(pos, D.origin) > 400 then
 					D.origin = nil
 				elseif cfg.ReturnBack then
 					if D.safeSince == 0 then D.safeSince = now end
-					if now - D.safeSince >= 0.35 then
+					if now - D.safeSince >= 0.5 then
 						local back = snap(D.origin.X, D.origin.Z, refY or (D.origin.Y - off), off)
-						if back and not danger(back, cfg.Margin + 4) then
+						if back and not danger(back, cfg.Margin + 6, true, 2) then
 							tp(back)
 							D.origin = nil
-						elseif now - D.lastDodge > 4 then
+						elseif now - D.lastDodge > 6 then
 							D.origin = nil
 						end
 					end
@@ -1003,49 +1335,116 @@ local milkOk, milkErr = xpcall(function()
 				end
 			end
 		end
-		D.lastHp = hum.Health
-	end
-	stepRef = step
+		stepRef = step
 
-	-- boss starts an attack animation while you are in melee reach -> leave before the hit lands
-	onBossAttack = function(m, nm)
-		if not cfg.Dodge or not cfg.AnimDodge then return end
-		local _, hrp = getChar()
-		local c = posOf(m)
-		if not hrp or not c then return end
-		local reach = (m:GetAttribute("UnitRadius") or 6) + 14
-		if flat(hrp.Position, c) <= reach + cfg.Margin then
-			addZone(c, reach, 0.9)
-			note(string.format("ANIM %s '%s' reach=%.0f", m.Name, nm, reach))
-			pcall(step, 0)
-		end
-	end
-
-	local attackConn
-	local function bindAttacks(f)
-		if attackConn then attackConn:Disconnect() end
-		local function onPart(d)
-			if not d:IsA("BasePart") then return end
-			local function try()
-				local s = d.Size
-				if d.Parent and math.max(s.X, s.Y, s.Z) >= 2 then addHaz(d) end
+		-- boss starts an attack animation while you are in melee reach -> leave before the hit lands
+		onBossAttack = function(m, nm)
+			if not cfg.Dodge or not cfg.AnimDodge then return end
+			local _, hrp = getChar()
+			local c = posOf(m)
+			if not hrp or not c then return end
+			local reach = (m:GetAttribute("UnitRadius") or 6) + 14
+			if flat(hrp.Position, c) <= reach + cfg.Margin then
+				addZone(c, reach, 1)
+				note(string.format("ANIM %s '%s' reach=%.0f", m.Name, nm, reach))
+				pcall(step, 0)
 			end
-			try()
-			task.defer(try)
-			task.delay(0.05, try)
 		end
-		attackConn = track(f.DescendantAdded:Connect(onPart))
-		for _, d in ipairs(f:GetDescendants()) do onPart(d) end
-	end
 
-	do
-		local f = Workspace:FindFirstChild("AHE_BossAttacks")
-		if f then bindAttacks(f) end
+		------------ boss events: tables that carry a position + radius become zones before anything is drawn
+		local function scanArgs(t, depth, hrpPos)
+			local pos, rad, delay
+			for k, v in pairs(t) do
+				local tv = typeof(v)
+				if tv == "Vector3" then
+					if not pos and (v - hrpPos).Magnitude < 500 then pos = v end
+				elseif tv == "CFrame" then
+					if not pos and (v.Position - hrpPos).Magnitude < 500 then pos = v.Position end
+				elseif tv == "number" and type(k) == "string" then
+					local lk = string.lower(k)
+					if lk == "r" or hasAny(lk, RAD_HINT) then
+						if v >= 3 and v <= 400 then rad = v end
+					elseif hasAny(lk, TIME_HINT) and v > 0 and v <= 6 then
+						delay = v
+					end
+				elseif tv == "table" and depth < 3 then
+					scanArgs(v, depth + 1, hrpPos)
+				end
+			end
+			if pos and rad then
+				addZone(pos, rad, (delay or 1) + 1.5)
+				note(string.format("EVT zone r=%.0f at (%.0f,%.0f,%.0f)", rad, pos.X, pos.Y, pos.Z))
+			end
+		end
+
+		for _, nm in ipairs(CAST_EVENTS) do
+			local ev = RS:FindFirstChild(nm, true)
+			if ev and (ev:IsA("RemoteEvent") or ev:IsA("UnreliableRemoteEvent")) then
+				local times, logAt = {}, -100
+				track(ev.OnClientEvent:Connect(function(...)
+					if not cfg.Dodge then return end
+					local now = os.clock()
+					times[#times + 1] = now
+					while times[1] and now - times[1] > 2 do table.remove(times, 1) end
+					local stream = #times > 6 -- fires constantly (hp sync etc.): not a cast signal
+					local a = table.pack(...)
+					if not stream then D.lastCast = now end
+					if cfg.WideDetect then
+						local _, hrp = getChar()
+						if hrp then pcall(scanArgs, a, 1, hrp.Position) end
+					end
+					if D.combat and now - logAt > (stream and 5 or 0.3) then
+						logAt = now
+						local out = {}
+						for i = 1, math.min(a.n, 6) do out[#out + 1] = ser(a[i]) end
+						note("CAST " .. nm .. " " .. table.concat(out, " | "))
+					end
+				end))
+			end
+		end
+
+		------------ sources
+		local attackConn
+		local function bindAttacks(f)
+			if attackConn then attackConn:Disconnect() end
+			local function onOther(d) -- models / attachments that carry their own radius
+				if not d.Parent then return end
+				local r = readAttrR(d)
+				if not r then return end
+				local p
+				if d:IsA("Attachment") then p = d.WorldPosition elseif d:IsA("Model") then p = posOf(d) end
+				for _, k in ipairs({ "Center", "Position", "Pos", "Origin" }) do
+					local v = d:GetAttribute(k)
+					if typeof(v) == "Vector3" then p = v break end
+				end
+				if p then
+					addZone(p, r, 3)
+					note(string.format("HAZ[attr] %s r=%.0f", d:GetFullName(), r))
+				end
+			end
+			local function onInst(d)
+				if d:IsA("BasePart") then
+					addHaz(d, "folder") -- tracked from birth, however small it starts
+				elseif d:IsA("Model") or d:IsA("Attachment") or d:IsA("Folder") then
+					task.defer(onOther, d)
+				end
+			end
+			attackConn = track(f.DescendantAdded:Connect(onInst))
+			for _, d in ipairs(f:GetDescendants()) do onInst(d) end
+		end
+
+		local f0 = Workspace:FindFirstChild("AHE_BossAttacks")
+		if f0 then bindAttacks(f0) end
 		track(Workspace.ChildAdded:Connect(function(c)
 			if c.Name == "AHE_BossAttacks" then bindAttacks(c) end
 		end))
 		track(Workspace.DescendantAdded:Connect(function(d)
-			if d.ClassName == "Model" then task.defer(considerEnemy, d) end
+			if d.ClassName == "Model" then
+				task.defer(considerEnemy, d)
+			elseif D.combat and cfg.Dodge and d:IsA("BasePart") then
+				recentI = recentI % 160 + 1
+				recent[recentI] = { p = d, t = os.clock(), n = 0 }
+			end
 		end))
 		track(RunService.Heartbeat:Connect(function(dt)
 			local ok, err = pcall(step, dt)
@@ -1057,7 +1456,7 @@ local milkOk, milkErr = xpcall(function()
 				task.wait(D.combat and 0.25 or 0.75)
 			end
 		end)
-		task.spawn(function() -- full enemy scan: now, then every 30 s, spread across frames
+		task.spawn(function() -- full enemy scan: now, then every 120 s, spread across frames
 			while running do
 				local all = Workspace:GetDescendants()
 				for i = 1, #all do
@@ -1256,20 +1655,38 @@ local milkOk, milkErr = xpcall(function()
 		end
 		return t
 	end
-	-- runs the game's own handler for a button (no mouse click). fires ONE signal only so a toggle never flips back
-	local function pressButton(b)
-		if not getconnections then return false end
-		for _, sig in ipairs({ b.Activated, b.MouseButton1Click, b.MouseButton1Down }) do
-			local ok, list = pcall(getconnections, sig)
-			if ok and list and #list > 0 then
-				local fired = false
-				for _, cn in ipairs(list) do
-					if pcall(function() cn:Fire() end) then fired = true end
-				end
-				if fired then return true end
+	-- runs the game's own handlers for a button (no mouse click).
+	-- mode "all": every click signal (claim buttons). mode n: only the n-th signal that has handlers, so a toggle is never fired twice
+	local function pressButton(b, mode)
+		local live = {}
+		if getconnections then
+			for _, sig in ipairs({ b.Activated, b.MouseButton1Click, b.MouseButton1Down, b.MouseButton1Up }) do
+				local ok, list = pcall(getconnections, sig)
+				if ok and list and #list > 0 then live[#live + 1] = list end
 			end
 		end
-		return false
+		if #live == 0 then
+			if firesignal then
+				local ok = pcall(firesignal, b.MouseButton1Click)
+				if mode == "all" then pcall(firesignal, b.Activated) end
+				return ok
+			end
+			return false
+		end
+		local from, to = 1, #live
+		if mode ~= "all" then
+			from = ((tonumber(mode) or 1) - 1) % #live + 1
+			to = from
+		end
+		local fired = false
+		for i = from, to do
+			for _, cn in ipairs(live[i]) do
+				local ok = pcall(function() cn:Fire() end)
+				if not ok then ok = pcall(function() cn.Function() end) end
+				if ok then fired = true end
+			end
+		end
+		return fired
 	end
 	local function findButton(rootGui, want, avoid)
 		if not rootGui then return nil end
@@ -1334,7 +1751,7 @@ local milkOk, milkErr = xpcall(function()
 		for _, b in ipairs(popupButtons()) do
 			if not pressedAt[b] or os.clock() - pressedAt[b] > 1.5 then
 				pressedAt[b] = os.clock()
-				if pressButton(b) then
+				if pressButton(b, "all") then
 					stat.claims = stat.claims + 1
 					status = "claimed via button " .. b.Name
 					note("claim button: " .. b:GetFullName() .. " (" .. src .. ")")
@@ -1384,26 +1801,81 @@ local milkOk, milkErr = xpcall(function()
 
 	local hideDialog
 	---------------- replay state
-	local rep = { boss = nil, endedAt = nil, endId = 0, doneId = -1, tries = 0, inMode = false, lastPos = nil, why = "idle", endGuiAt = -100, endGui = nil }
+	local rep = { boss = nil, endedAt = nil, inMode = false, lastPos = nil, why = "idle", endGuiAt = -100, endGui = nil,
+		strong = false, presses = 0, lastPress = -100, remoteDone = false, counted = false, hidden = nil,
+		ignore = setmetatable({}, { __mode = "k" }) }
+
+	local REPLAY_BLOCK = { "egg", "hatch", "buy", "robux", "shop", "store", "milk", "ไข่", "ซื้อ" }
+	local replayCache = setmetatable({}, { __mode = "k" })
+	local function considerReplayBtn(b)
+		if not b:IsA("GuiButton") then return end
+		if hasWord(string.lower(b:GetFullName()), REPLAY_BLOCK) then return end
+		local t = btnText(b)
+		if hasWord(t, REPLAY_WORDS) and not hasWord(t, LEAVE_WORDS) and not hasWord(t, REPLAY_BLOCK) then replayCache[b] = true end
+	end
+	local function rescanReplay()
+		local pg = LP:FindFirstChildOfClass("PlayerGui")
+		if not pg then return end
+		local all = pg:GetDescendants()
+		for i = 1, #all do
+			if all[i]:IsA("GuiButton") then pcall(considerReplayBtn, all[i]) end
+			if i % 600 == 0 then task.wait() end
+		end
+	end
+	-- a replay button that is on screen now and was not already there when the mode started
+	local function visibleReplayBtn()
+		for b in pairs(replayCache) do
+			if not b.Parent then
+				replayCache[b] = nil
+			elseif not rep.ignore[b] and shown(b) then
+				return b
+			end
+		end
+		return nil
+	end
 
 	local function modeStart(why)
 		if rep.inMode then return end
 		rep.inMode, rep.endedAt = true, nil
 		note("mode start (" .. why .. ")")
+		-- buttons that match "replay" but sit on the hud all the time are not the end dialog
+		if not rep.lastEndAt or os.clock() - rep.lastEndAt > 20 then
+			rep.ignore = setmetatable({}, { __mode = "k" })
+			for b in pairs(replayCache) do
+				if b.Parent and shown(b) then rep.ignore[b] = true end
+			end
+		end
+		-- a dialog hidden last round: if the game now hides it through a parent, give its own flag back
+		local dlg = rep.hidden
+		rep.hidden = nil
+		if dlg and dlg.Parent and not dlg.Visible then
+			local o, parentHidden = dlg.Parent, false
+			while o and not o:IsA("LayerCollector") do
+				if o:IsA("GuiObject") and not o.Visible then parentHidden = true break end
+				o = o.Parent
+			end
+			if o and o:IsA("ScreenGui") and not o.Enabled then parentHidden = true end
+			if parentHidden then dlg.Visible = true end
+		end
 	end
-	local function modeEnd(why)
-		if not rep.inMode and rep.endedAt then return end
+	local function modeEnd(why, strong)
+		if not rep.inMode and rep.endedAt then
+			if strong then rep.strong = true end
+			return
+		end
 		rep.inMode, rep.boss = false, nil
 		rep.endedAt = os.clock()
-		rep.endId = rep.endId + 1
-		rep.tries = 0
+		rep.lastEndAt = rep.endedAt
+		rep.strong = strong or false
+		rep.presses, rep.lastPress, rep.remoteDone, rep.counted = 0, -100, false, false
 		note("mode end (" .. why .. ")")
 	end
 
-	do -- watch the gui for reward popups and end screens
+	do -- watch the gui for reward popups, end screens and replay buttons
 		local pg = LP:FindFirstChildOfClass("PlayerGui") or LP:WaitForChild("PlayerGui", 5)
 		if pg then
 			track(pg.DescendantAdded:Connect(function(d)
+				if d:IsA("GuiButton") then task.defer(pcall, considerReplayBtn, d) end
 				if not (d:IsA("GuiObject") or d:IsA("LayerCollector")) then return end
 				local lname = string.lower(d.Name)
 				if hasWord(lname, POPUP_WORDS) then
@@ -1419,6 +1891,7 @@ local milkOk, milkErr = xpcall(function()
 					note("GUI end screen: " .. d:GetFullName())
 				end
 			end))
+			task.spawn(rescanReplay)
 		end
 	end
 
@@ -1435,54 +1908,62 @@ local milkOk, milkErr = xpcall(function()
 	end
 	hideDialog = function(b)
 		local dlg = dialogOf(b)
-		if not dlg then return end
+		if not dlg or not dlg:IsA("GuiObject") then return end
 		task.delay(0.6, function()
-			if dlg.Parent and dlg:IsA("GuiObject") and dlg.Visible then
+			if dlg.Parent and dlg.Visible then
 				dlg.Visible = false
+				rep.hidden = dlg
 				note("hid end dialog: " .. dlg:GetFullName())
 			end
 		end)
 	end
 
+	local function fireReplayRemote()
+		local c = L.replayCall
+		if not (c and c.remote and c.remote.Parent) then return false end
+		local a = c.args
+		task.spawn(function()
+			pcall(function()
+				if c.method == "FireServer" then c.remote:FireServer(table.unpack(a, 1, a.n))
+				else c.remote:InvokeServer(table.unpack(a, 1, a.n)) end
+			end)
+		end)
+		note("replay remote: " .. tostring(c.name))
+		return true
+	end
+
+	-- test button: the replay button if one is on screen, else the call taught with Learn Replay
 	local function doReplay()
-		local pg = LP:FindFirstChildOfClass("PlayerGui")
-		-- 1) the end screen's replay button (exactly what you would press)
-		local b = findButton(rep.endGui, REPLAY_WORDS, LEAVE_WORDS) or findButton(pg, REPLAY_WORDS, LEAVE_WORDS)
-		if b and pressButton(b) then
+		local b = visibleReplayBtn()
+		if b and pressButton(b, 1) then
 			note("replay button: " .. b:GetFullName())
 			hideDialog(b)
 			return "button " .. b.Name
 		end
-		-- 2) the call you taught with Learn Replay
-		local c = L.replayCall
-		if c and c.remote and c.remote.Parent then
-			local a = c.args
-			task.spawn(function()
-				pcall(function()
-					if c.method == "FireServer" then c.remote:FireServer(table.unpack(a, 1, a.n))
-					else c.remote:InvokeServer(table.unpack(a, 1, a.n)) end
-				end)
-			end)
-			local rb = findButton(rep.endGui, REPLAY_WORDS, LEAVE_WORDS) or findButton(pg, REPLAY_WORDS, LEAVE_WORDS)
-			if rb then hideDialog(rb) end
-			return "remote " .. c.name
-		end
+		if fireReplayRemote() then return "remote " .. tostring(L.replayCall.name) end
 		return nil
 	end
 
 	task.spawn(function()
-		local seenPopup = -100
+		local seenPopup, rescanAt = -100, os.clock()
 		while running do
 			local now = os.clock()
 			local _, hrp = getChar()
 			if hrp then
 				local pos = hrp.Position
-				if rep.lastPos and (pos - rep.lastPos).Magnitude > 400 and now - D.lastDodge > 1 then
-					if rep.inMode then modeEnd("warp out") else modeStart("warp in") end
+				if rep.lastPos and (pos - rep.lastPos).Magnitude > 400 and now - D.lastDodge > 1.5 and not D.float then
+					if rep.inMode then
+						modeEnd("warp out", true)
+					elseif rep.endedAt and rep.presses == 0 and not rep.remoteDone and lastUserInput < rep.endedAt then
+						rep.strong = true -- sent back to the lobby after the fight: still the same ending
+						note("warp after mode end")
+					else
+						modeStart("warp in")
+					end
 				end
 				rep.lastPos = pos
 				if rep.boss then
-					if not rep.boss.Parent or (rep.boss:GetAttribute("HP") or 0) <= 0 then modeEnd("boss dead") end
+					if not rep.boss.Parent or (rep.boss:GetAttribute("HP") or 0) <= 0 then modeEnd("boss dead", false) end
 				else
 					local e, d = nearestEnemy(pos)
 					if e and d <= 250 and e:GetAttribute("Mob") ~= true then
@@ -1492,37 +1973,76 @@ local milkOk, milkErr = xpcall(function()
 				end
 			else
 				rep.lastPos = nil
+				if rep.inMode then
+					local ch = LP.Character
+					local hm = ch and ch:FindFirstChildOfClass("Humanoid")
+					if hm and hm.Health <= 0 then modeEnd("you died", false) end
+				end
 			end
 			if OB.n > 0 then modeStart("obito") end
-			if rep.inMode and popupAt > seenPopup then modeEnd("reward popup") end
+			if rep.inMode and popupAt > seenPopup then modeEnd("reward popup", true) end
 			seenPopup = popupAt
-			if rep.inMode and now - rep.endGuiAt < 1 then modeEnd("end screen") end
+			if now - rep.endGuiAt < 1 and (rep.inMode or rep.endedAt) then modeEnd("end screen", true) end
+
+			local rb
+			if cfg.AutoReplay then
+				if now - rescanAt > 20 then
+					rescanAt = now
+					task.spawn(rescanReplay)
+				end
+				if rep.inMode or rep.endedAt then
+					rb = visibleReplayBtn()
+					if rb then modeEnd("replay button on screen", true) end
+				end
+			end
 
 			if rep.endedAt then
 				local since = now - rep.endedAt
 				local wait_ = cfg.ReplayDelay + (cfg.AutoClaim and (cfg.ClaimDelay + 1) or 0)
+				-- pressed, but no new round started: bring the dialog back so it can be pressed again (or by you)
+				if rep.hidden and rep.presses >= 1 and now - rep.lastPress > 8 then
+					local dlg = rep.hidden
+					rep.hidden = nil
+					if dlg.Parent then
+						dlg.Visible = true
+						note("replay did not start a new round -> dialog restored")
+					end
+				end
 				if not cfg.AutoReplay then
 					rep.why = "mode ended (auto replay off)"
 				elseif userBusy() then
 					rep.why = "you are pressing things - replay paused"
-				elseif rep.tries == 0 and since >= wait_ then
-					rep.tries = 1
-					local how = doReplay()
-					if how then
-						stat.replays = stat.replays + 1
-						rep.why = "replay #" .. stat.replays .. " via " .. how
-					else
-						rep.why = "no replay button / not learned - use Learn Replay"
-					end
-					status = rep.why
-				elseif rep.tries == 1 and since >= wait_ + 20 and not rep.inMode then
-					rep.tries = 2   -- one retry if nothing happened in 20 s
-					local how = doReplay()
-					rep.why = how and ("replay retry via " .. how) or rep.why
 				elseif since < wait_ then
 					rep.why = string.format("replay in %.1f s", wait_ - since)
+				elseif rb and rep.presses < 3 and now - rep.lastPress > 4 then
+					rep.presses = rep.presses + 1
+					rep.lastPress = now
+					if pressButton(rb, rep.presses) then
+						if not rep.counted then
+							rep.counted = true
+							stat.replays = stat.replays + 1
+						end
+						note("replay button: " .. rb:GetFullName() .. " (press " .. rep.presses .. ")")
+						if rep.presses < 3 then hideDialog(rb) end
+						rep.why = "replay #" .. stat.replays .. " via button " .. rb.Name .. (rep.presses > 1 and (" (try " .. rep.presses .. ")") or "")
+					else
+						rep.why = "replay button has no handler - use Learn Replay"
+					end
+					status = rep.why
+				elseif not rb and rep.presses == 0 and not rep.remoteDone and L.replayCall
+					and ((rep.strong and since >= wait_ + 1.5) or (since >= wait_ + 6 and not D.combat)) then
+					rep.remoteDone = true
+					if fireReplayRemote() then
+						rep.counted = true
+						stat.replays = stat.replays + 1
+						rep.why = "replay #" .. stat.replays .. " via remote " .. tostring(L.replayCall.name)
+						status = rep.why
+					end
+				elseif rep.presses == 0 and not rep.remoteDone then
+					rep.why = "mode ended - waiting for the replay button"
+						.. ((since > wait_ + 10 and not L.replayCall) and " (none seen: use Learn Replay)" or "")
 				end
-				if since > 60 then rep.endedAt = nil end
+				if since > 90 then rep.endedAt = nil end
 			else
 				rep.why = rep.inMode and "in mode" or "waiting for a mode"
 			end
@@ -1665,8 +2185,14 @@ local milkOk, milkErr = xpcall(function()
 
 	section("DODGE  (F6)")
 	toggle("Auto Dodge", "Dodge")
+	cycle("Dodge Distance", "MinDodge", DISTS, "+ studs")
+	cycle("Margin", "Margin", MARGINS, " studs")
+	toggle("Float Over Waves / No-Escape Skills", "WaveFloat")
+	cycle("Float Height (min)", "FloatMin", FLOATS, " studs")
 	toggle("Anim Pre-Dodge", "AnimDodge")
-	toggle("Float Over 360 Waves", "WaveFloat")
+	toggle("Wide Detect (fx folders / names / casts)", "WideDetect")
+	toggle("Move Away On Unpredicted Hit", "HitDodge")
+	toggle("Learn Skills From Hits", "LearnHits")
 	toggle("Return To Spot", "ReturnBack")
 	toggle("Show Hazards (red / yellow)", "ShowHazards", function()
 		for _, h in pairs(D.haz) do
@@ -1678,8 +2204,19 @@ local milkOk, milkErr = xpcall(function()
 			end
 		end
 	end)
-	cycle("Margin", "Margin", MARGINS, " studs")
-	cycle("Dodge Distance", "MinDodge", DISTS, "+ studs")
+	local bd = btn("Reset Dodge Learning")
+	track(bd.MouseButton1Click:Connect(function()
+		resetDodgeLearning()
+		status = "dodge learning reset"
+	end))
+	local bm = btn("Save Dodge Log (send this after a miss)")
+	track(bm.MouseButton1Click:Connect(function()
+		local txt = "-- milk dodge log " .. os.date("%H:%M:%S") .. "\n" .. table.concat(notes, "\n")
+		local saved = false
+		if writefile then saved = pcall(writefile, "milk_ahe_dodgelog.txt", txt) end
+		if setclipboard then pcall(setclipboard, txt) end
+		status = saved and "saved milk_ahe_dodgelog.txt (also in clipboard)" or "dodge log copied to clipboard"
+	end))
 
 	section("REPLAY + REWARD")
 	toggle("Auto Replay", "AutoReplay")
@@ -1766,7 +2303,7 @@ local milkOk, milkErr = xpcall(function()
 	end))
 
 	section("LIVE")
-	local info = mk("TextLabel", { Size = UDim2.new(1, 0, 0, 196), BackgroundColor3 = PANEL, BorderSizePixel = 0, Text = "", TextColor3 = TXT, Font = Enum.Font.Code,
+	local info = mk("TextLabel", { Size = UDim2.new(1, 0, 0, 214), BackgroundColor3 = PANEL, BorderSizePixel = 0, Text = "", TextColor3 = TXT, Font = Enum.Font.Code,
 		TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, LayoutOrder = nextO() }, scroll)
 	mk("UICorner", { CornerRadius = UDim.new(0, 5) }, info)
 	mk("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingTop = UDim.new(0, 6) }, info)
@@ -1794,7 +2331,8 @@ local milkOk, milkErr = xpcall(function()
 					"collected   : " .. stat.collected,
 					"combat      : " .. (D.combat and "yes" or "no"),
 					"hazards     : " .. D.hazN,
-					"dodges      : " .. D.dodges .. "   floats: " .. D.floats,
+					"dodges      : " .. D.dodges .. "   floats: " .. D.floats .. "   misses: " .. D.misses,
+					string.format("float       : x%.1f  far=%s  learned=%d", D.boost, D.far and "yes" or "no", D.learnedN),
 					"replay call : " .. (L.replayCall and L.replayCall.name or "button only"),
 					"replay      : " .. rep.why,
 					"replays     : " .. stat.replays,
