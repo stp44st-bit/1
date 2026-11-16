@@ -142,7 +142,10 @@ local milkOk, milkErr = xpcall(function()
 		return math.sqrt(dx * dx + dz * dz)
 	end
 
+	local standCache, standAt = {}, -100
 	local function stands()
+		if os.clock() - standAt < 3 then return standCache end
+		standAt = os.clock()
 		local f = Workspace:FindFirstChild("EggStands")
 		local list = {}
 		if f then
@@ -151,6 +154,7 @@ local milkOk, milkErr = xpcall(function()
 			end
 		end
 		table.sort(list, function(a, b) return a:GetAttribute("BaseId") < b:GetAttribute("BaseId") end)
+		standCache = list
 		return list
 	end
 
@@ -245,8 +249,7 @@ local milkOk, milkErr = xpcall(function()
 			local m = getnamecallmethod()
 			if (m == "FireServer" or m == "InvokeServer") and env.MilkHatch_On and env.MilkHatch_Cap
 				and not (checkcaller and checkcaller()) then
-				local ok, nm = pcall(function() return self.Name end)
-				if ok then pcall(env.MilkHatch_Cap, self, m, nm, table.pack(...)) end
+				if typeof(self) == "Instance" then pcall(env.MilkHatch_Cap, self, m, self.Name, table.pack(...)) end
 			end
 			return old(self, ...)
 		end
@@ -909,12 +912,17 @@ local milkOk, milkErr = xpcall(function()
 			D.lastHp, D.origin, D.float, D.lastFloor = nil, nil, nil, nil
 			return
 		end
-		local refY = floorY(hrp, hum)
 		if not cfg.Dodge then
 			D.float = nil
 			D.lastHp = hum.Health
 			return
 		end
+		-- nothing to react to: skip raycasts / scans this frame
+		if not D.float and not D.origin and D.hazN == 0 and #D.zones == 0 and not D.combat then
+			D.lastHp = hum.Health
+			return
+		end
+		local refY = floorY(hrp, hum)
 		local now = os.clock()
 
 		-- floating over a 360 wave
@@ -1046,7 +1054,7 @@ local milkOk, milkErr = xpcall(function()
 		task.spawn(function()
 			while running do
 				pcall(refreshEnemies)
-				task.wait(0.25)
+				task.wait(D.combat and 0.25 or 0.75)
 			end
 		end)
 		task.spawn(function() -- full enemy scan: now, then every 30 s, spread across frames
@@ -1054,10 +1062,10 @@ local milkOk, milkErr = xpcall(function()
 				local all = Workspace:GetDescendants()
 				for i = 1, #all do
 					if all[i].ClassName == "Model" then considerEnemy(all[i]) end
-					if i % 1500 == 0 then task.wait() end
+					if i % 1000 == 0 then task.wait() end
 				end
 				all = nil
-				task.wait(30)
+				task.wait(120)
 			end
 		end)
 	end
@@ -1279,29 +1287,40 @@ local milkOk, milkErr = xpcall(function()
 	local pressedAt = setmetatable({}, { __mode = "k" })
 	local popupGui
 
-	-- every visible button that sits inside a reward / popup gui
+	-- cache of buttons inside reward / popup guis, kept up to date by PlayerGui events (no full gui walk every poll)
+	local popupCache = setmetatable({}, { __mode = "k" })
+	local function considerBtn(b)
+		if not b:IsA("GuiButton") then return end
+		local path = string.lower(b:GetFullName())
+		if hasWord(path, POPUP_PATH) and not hasWord(path, POPUP_SKIP) then popupCache[b] = true end
+	end
+	task.spawn(function()
+		local pg = LP:FindFirstChildOfClass("PlayerGui") or LP:WaitForChild("PlayerGui", 10)
+		if not pg then return end
+		local all = pg:GetDescendants()
+		for i = 1, #all do
+			considerBtn(all[i])
+			if i % 800 == 0 then task.wait() end
+		end
+		track(pg.DescendantAdded:Connect(function(d)
+			if d:IsA("GuiButton") then task.defer(considerBtn, d) end
+		end))
+	end)
+
 	local function popupButtons()
-		local pg = LP:FindFirstChildOfClass("PlayerGui")
-		local out = {}
-		if not pg then return out end
-		for _, b in ipairs(pg:GetDescendants()) do
-			if b:IsA("GuiButton") then
-				local path = string.lower(b:GetFullName())
-				if hasWord(path, POPUP_PATH) and not hasWord(path, POPUP_SKIP) and shown(b) then
-					local t = btnText(b)
-					if not hasWord(t, REPLAY_WORDS) and not hasWord(t, LEAVE_WORDS) and not hasWord(t, POPUP_SKIP) then
-						out[#out + 1] = b
-					end
+		local out, claimFirst = {}, {}
+		for b in pairs(popupCache) do
+			if not b.Parent then
+				popupCache[b] = nil
+			elseif shown(b) then
+				local t = btnText(b)
+				if not hasWord(t, REPLAY_WORDS) and not hasWord(t, LEAVE_WORDS) and not hasWord(t, POPUP_SKIP) then
+					if hasWord(t, CLAIM_WORDS) then claimFirst[#claimFirst + 1] = b else out[#out + 1] = b end
 				end
 			end
 		end
-		-- claim-looking buttons first
-		table.sort(out, function(x, y)
-			local cx, cy = hasWord(btnText(x), CLAIM_WORDS), hasWord(btnText(y), CLAIM_WORDS)
-			if cx ~= cy then return cx end
-			return false
-		end)
-		return out
+		for _, b in ipairs(out) do claimFirst[#claimFirst + 1] = b end
+		return claimFirst
 	end
 
 	local function autoClaim(src)
@@ -1330,7 +1349,7 @@ local milkOk, milkErr = xpcall(function()
 	task.spawn(function() -- poll: popups that are only toggled visible never fire DescendantAdded
 		while running do
 			if cfg.AutoClaim then pcall(autoClaim, "poll") end
-			task.wait(math.max(cfg.ClaimDelay, 0.4))
+			task.wait(math.max(cfg.ClaimDelay, 0.5))
 		end
 	end)
 
@@ -1762,27 +1781,29 @@ local milkOk, milkErr = xpcall(function()
 	task.spawn(function()
 		rebuildEsp()
 		while running do
-			for _, f in ipairs(repaints) do pcall(f) end
-			local n = 0
-			for k in pairs(L) do if type(k) == "string" and string.sub(k, 1, 4) == "AHE_" then n = n + 1 end end
-			info.Text = table.concat({
-				"egg remote : " .. tostring(L.lastEgg or "not learned"),
-				"sell remote: " .. (L.AHE_Sell and "learned" or "not learned"),
-				"learned     : " .. n .. " remotes",
-				"hatched     : " .. stat.hatched,
-				"sold        : " .. stat.sold,
-				"collected   : " .. stat.collected,
-				"combat      : " .. (D.combat and "yes" or "no"),
-				"hazards     : " .. D.hazN,
-				"dodges      : " .. D.dodges .. "   floats: " .. D.floats,
-				"replay call : " .. (L.replayCall and L.replayCall.name or "button only"),
-				"replay      : " .. rep.why,
-				"replays     : " .. stat.replays,
-				"claim remote: " .. (L.claim and L.claim.name or "not learned") .. "   popups " .. stat.popups .. "  claims " .. stat.claims,
-				"obito       : targets " .. OB.n .. "  grab " .. stat.obGrab .. "  deliver " .. stat.obDeliver,
-			}, "\n")
-			statusL.Text = "  " .. status
-			task.wait(0.3)
+			if win.Visible then
+				for _, f in ipairs(repaints) do pcall(f) end
+				local n = 0
+				for k in pairs(L) do if type(k) == "string" and string.sub(k, 1, 4) == "AHE_" then n = n + 1 end end
+				info.Text = table.concat({
+					"egg remote : " .. tostring(L.lastEgg or "not learned"),
+					"sell remote: " .. (L.AHE_Sell and "learned" or "not learned"),
+					"learned     : " .. n .. " remotes",
+					"hatched     : " .. stat.hatched,
+					"sold        : " .. stat.sold,
+					"collected   : " .. stat.collected,
+					"combat      : " .. (D.combat and "yes" or "no"),
+					"hazards     : " .. D.hazN,
+					"dodges      : " .. D.dodges .. "   floats: " .. D.floats,
+					"replay call : " .. (L.replayCall and L.replayCall.name or "button only"),
+					"replay      : " .. rep.why,
+					"replays     : " .. stat.replays,
+					"claim remote: " .. (L.claim and L.claim.name or "not learned") .. "   popups " .. stat.popups .. "  claims " .. stat.claims,
+					"obito       : targets " .. OB.n .. "  grab " .. stat.obGrab .. "  deliver " .. stat.obDeliver,
+				}, "\n")
+				statusL.Text = "  " .. status
+			end
+			task.wait(0.5)
 		end
 	end)
 
