@@ -1,6 +1,6 @@
 --// milk :: Anime Hunting Egg  |  hatch hub
 --// auto hatch (learns the egg remote from one manual hatch) + auto sell + forest collect + egg stand esp + anti afk
---// auto dodge v7 (wave escape up / out / out+up learned per boss, signal learning) + auto replay v6 + auto claim + obito helper
+--// auto dodge v7 + auto replay / auto claim v8 (finds the dialog on screen, tries every press method) + obito helper
 --// Insert = hide/show window
 
 -- error catcher: if anything breaks on load, the reason shows on screen, in the console and in milk_ahe_error.txt
@@ -60,7 +60,7 @@ local milkOk, milkErr = xpcall(function()
 		ESP = true, AntiAfk = true, Spy = false,
 		Dodge = true, AnimDodge = true, WaveFloat = true, ReturnBack = true, ShowHazards = false,
 		Margin = 6, MinDodge = 30, FloatMin = 30, WideDetect = true, LearnHits = true, HitDodge = true, EscapeOnUlt = true,
-		AutoReplay = false, ReplayDelay = 2, AutoClaim = true, ClaimDelay = 0.3,
+		AutoReplay = false, ReplayDelay = 2, AutoClaim = true, ClaimDelay = 0.3, VClick = true, HidePopup = true,
 		Obito = false,
 	}
 	local MARGINS = { 2, 4, 6, 8, 10, 14 }
@@ -1928,112 +1928,191 @@ local milkOk, milkErr = xpcall(function()
 		end
 	end
 
-	---------------- claim
+	---------------- v8 button engine: finds the end dialog / reward popup on screen every half second and presses it,
+	---------------- trying every way to press until the button actually goes away. no mode detection needed.
+	local VIM
+	pcall(function() VIM = cloneref(game:GetService("VirtualInputManager")) end)
+	local GuiServiceB = S("GuiService")
 	local POPUP_PATH = { "reward", "popup", "loot", "itemget", "drop", "claim", "obtain", "unbox" }
-	local POPUP_SKIP = { "login", "shop", "store", "battlepass", "robux", "buy", "purchase", "milk", "quest", "index", "settings", "codes" }
-	local pressedAt = setmetatable({}, { __mode = "k" })
-	local popupGui
+	local POPUP_SKIP = { "login", "shop", "store", "battlepass", "robux", "buy", "purchase", "milk", "quest", "index", "settings", "codes", "egg" }
+	local REPLAY_BLOCK = { "egg", "hatch", "buy", "robux", "shop", "store", "milk", "ไข่", "ซื้อ" }
+	L.btnMethod = L.btnMethod or {}
 
-	-- cache of buttons inside reward / popup guis, kept up to date by PlayerGui events (no full gui walk every poll)
-	local popupCache = setmetatable({}, { __mode = "k" })
-	local function considerBtn(b)
-		if not b:IsA("GuiButton") then return end
-		local path = string.lower(b:GetFullName())
-		if hasWord(path, POPUP_PATH) and not hasWord(path, POPUP_SKIP) then popupCache[b] = true end
+	local rep = { why = "idle", lbShown = false, presses = 0, remoteDone = false, last = 0, hidden = nil,
+		roomActive = false, room = nil, endedAt = nil, cand = "-", claimWhy = "idle" }
+
+	local function topFrame(b) -- the dialog / popup panel: the child of the ScreenGui that holds the button
+		local o = b
+		while o.Parent and not o.Parent:IsA("LayerCollector") do o = o.Parent end
+		return o
 	end
-	task.spawn(function()
-		local pg = LP:FindFirstChildOfClass("PlayerGui") or LP:WaitForChild("PlayerGui", 10)
-		if not pg then return end
-		local all = pg:GetDescendants()
-		for i = 1, #all do
-			considerBtn(all[i])
-			if i % 800 == 0 then task.wait() end
-		end
-		track(pg.DescendantAdded:Connect(function(d)
-			if d:IsA("GuiButton") then task.defer(considerBtn, d) end
-		end))
-	end)
 
-	local function popupButtons()
-		local out, claimFirst = {}, {}
-		for b in pairs(popupCache) do
-			if not b.Parent then
-				popupCache[b] = nil
-			elseif shown(b) then
-				local t = btnText(b)
-				if not hasWord(t, REPLAY_WORDS) and not hasWord(t, LEAVE_WORDS) and not hasWord(t, POPUP_SKIP) then
-					if hasWord(t, CLAIM_WORDS) then claimFirst[#claimFirst + 1] = b else out[#out + 1] = b end
+	-- smallest frame that holds this button and a home / leave button = the end dialog
+	local function dialogOf(b)
+		local o = b.Parent
+		local depth = 0
+		while o and not o:IsA("LayerCollector") and depth < 6 do
+			for _, d in ipairs(o:GetDescendants()) do
+				if d ~= b and d:IsA("GuiButton") and shown(d) and hasWord(btnText(d), LEAVE_WORDS) then return o end
+			end
+			o = o.Parent
+			depth = depth + 1
+		end
+		return nil
+	end
+
+	local function guiInsetFor(b)
+		local sg = b:FindFirstAncestorWhichIsA("ScreenGui")
+		if sg and sg.IgnoreGuiInset then return 0 end
+		local ok, inset = pcall(function() return GuiServiceB:GetGuiInset() end)
+		return ok and inset.Y or 0
+	end
+
+	-- every way this executor has to press a button, in the order tried
+	local function pressMethods(b)
+		local list = {}
+		if getconnections then
+			for _, sn in ipairs({ "Activated", "MouseButton1Click", "MouseButton1Down", "MouseButton1Up" }) do
+				local ok, cons = pcall(getconnections, b[sn])
+				if ok and type(cons) == "table" and #cons > 0 then
+					list[#list + 1] = { name = "conn:" .. sn, fn = function()
+						local fired = false
+						for _, cn in ipairs(cons) do
+							if pcall(function() cn:Fire() end) or pcall(function() cn.Function() end) then fired = true end
+						end
+						return fired
+					end }
 				end
 			end
 		end
-		for _, b in ipairs(out) do claimFirst[#claimFirst + 1] = b end
-		return claimFirst
+		if firesignal then
+			list[#list + 1] = { name = "firesignal:Activated", fn = function() return pcall(firesignal, b.Activated) end }
+			list[#list + 1] = { name = "firesignal:Click", fn = function() return pcall(firesignal, b.MouseButton1Click) end }
+		end
+		if cfg.VClick and VIM then
+			list[#list + 1] = { name = "virtual click", fn = function()
+				local p, s = b.AbsolutePosition, b.AbsoluteSize
+				local x, y = p.X + s.X / 2, p.Y + s.Y / 2 + guiInsetFor(b)
+				return pcall(function()
+					VIM:SendMouseButtonEvent(x, y, 0, true, game, 0)
+					task.wait(0.05)
+					VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
+				end)
+			end }
+		end
+		return list
+	end
+
+	local function keyOf(b) return table.concat(pathOf(b), "/") end
+
+	-- press, wait, check it worked (button gone or you were moved), else the next method. returns method name or nil
+	local function pressUntilGone(b, label, okCheck)
+		local key = keyOf(b)
+		local list = pressMethods(b)
+		if #list == 0 then
+			note(label .. ": no way to press on this executor (no getconnections / firesignal / VirtualInputManager)")
+			return nil
+		end
+		-- the method that worked last time goes first
+		local remembered = L.btnMethod[key]
+		if remembered then
+			for i, m in ipairs(list) do
+				if m.name == remembered then
+					table.remove(list, i)
+					table.insert(list, 1, m)
+					break
+				end
+			end
+		end
+		for _, m in ipairs(list) do
+			if not running or not b.Parent or not shown(b) then break end
+			local fired = m.fn()
+			task.wait(1.8)
+			local worked = (not b.Parent) or (not shown(b)) or (okCheck and okCheck())
+			note(string.format("%s: %s -> %s%s", label, m.name, fired and "fired" or "failed", worked and " WORKED" or " (still on screen)"))
+			if worked then
+				L.btnMethod[key] = m.name
+				return m.name
+			end
+		end
+		return nil
+	end
+
+	---------------- claim (reward popup)
+	local busyClaim = false
+	local function findPopupButton()
+		local cb = resolveBtn(L.claimBtn)
+		if cb and shown(cb) then return cb, "learned" end
+		local pg = LP:FindFirstChildOfClass("PlayerGui")
+		if not pg then return nil end
+		local best, bestClaim
+		for _, b in ipairs(pg:GetDescendants()) do
+			if b:IsA("GuiButton") and shown(b) then
+				local path = string.lower(b:GetFullName())
+				if hasWord(path, POPUP_PATH) and not hasWord(path, POPUP_SKIP) and not string.find(path, "milkhatch", 1, true) then
+					local t = btnText(b)
+					if not hasWord(t, REPLAY_WORDS) and not hasWord(t, LEAVE_WORDS) and not hasWord(t, POPUP_SKIP) then
+						if hasWord(t, CLAIM_WORDS) then bestClaim = bestClaim or b else best = best or b end
+					end
+				end
+			end
+		end
+		return bestClaim or best, "found"
 	end
 
 	local function autoClaim(src)
-		if not cfg.AutoClaim or userBusy() then return false end
-		-- 1) learned claim remote (Learn Claim), only right after a popup event
+		if not cfg.AutoClaim or busyClaim or userBusy() then return false end
 		if src == "event" and L.claim and claimNow() then
-			status = "claimed via remote " .. tostring(L.claim.name)
-			return true
+			rep.claimWhy = "claimed via remote " .. tostring(L.claim.name)
+			status = rep.claimWhy
 		end
-		-- 2) the button taught with Learn Claim
-		local cb = resolveBtn(L.claimBtn)
-		if cb and shown(cb) and (not pressedAt[cb] or os.clock() - pressedAt[cb] > 1.5) then
-			pressedAt[cb] = os.clock()
-			if pressButton(cb, "all") then
+		local b, how = findPopupButton()
+		if not b then return false end
+		busyClaim = true
+		local ok, res = pcall(pressUntilGone, b, "claim " .. b.Name)
+		busyClaim = false
+		if ok and res then
+			stat.claims = stat.claims + 1
+			rep.claimWhy = "claimed (" .. how .. " button, " .. res .. ")"
+		elseif b.Parent and shown(b) and cfg.HidePopup then
+			local panel = topFrame(b)
+			if panel:IsA("GuiObject") then
+				panel.Visible = false
 				stat.claims = stat.claims + 1
-				status = "claimed via learned button " .. cb.Name
-				note("claim (learned button): " .. cb:GetFullName() .. " (" .. src .. ")")
-				return true
+				rep.claimWhy = "popup would not close -> hidden on your screen"
+				note("hid popup " .. panel:GetFullName())
 			end
-			status = "learned claim button has no click handler"
+		else
+			rep.claimWhy = "could not press " .. b.Name .. " (see log)"
 		end
-		-- 3) the popup's own button handler (not a mouse click)
-		for _, b in ipairs(popupButtons()) do
-			if not pressedAt[b] or os.clock() - pressedAt[b] > 1.5 then
-				pressedAt[b] = os.clock()
-				if pressButton(b, "all") then
-					stat.claims = stat.claims + 1
-					status = "claimed via button " .. b.Name
-					note("claim button: " .. b:GetFullName() .. " (" .. src .. ")")
-					return true
-				end
-			end
-		end
-		return false
+		status = rep.claimWhy
+		return ok and res ~= nil
 	end
 	env.MilkHatch_AutoClaim = autoClaim
 
-	task.spawn(function() -- poll: popups that are only toggled visible never fire DescendantAdded
+	task.spawn(function()
 		while running do
 			if cfg.AutoClaim then pcall(autoClaim, "poll") end
-			task.wait(math.max(cfg.ClaimDelay, 0.5))
+			task.wait(0.6 + cfg.ClaimDelay)
 		end
 	end)
 
-	-- dumps what is on screen so the popup can be matched exactly
+	-- dumps what is on screen so the popup / dialog can be matched exactly
 	local function popupScan()
 		local pg = LP:FindFirstChildOfClass("PlayerGui")
 		local out = { "-- milk popup scan " .. os.date("%H:%M:%S"), "-- visible buttons" }
 		if pg then
 			for _, b in ipairs(pg:GetDescendants()) do
 				if b:IsA("GuiButton") and shown(b) then
-					out[#out + 1] = b:GetFullName() .. "  [" .. b.ClassName .. "]  text=" .. string.sub(btnText(b), 1, 60)
-				end
-			end
-			out[#out + 1] = "-- visible frames with reward/popup/item in the path"
-			for _, g in ipairs(pg:GetDescendants()) do
-				if g:IsA("GuiObject") and not g:IsA("GuiButton") and shown(g) then
-					local path = string.lower(g:GetFullName())
-					if hasWord(path, POPUP_PATH) or string.find(path, "item", 1, true) then
-						out[#out + 1] = g:GetFullName() .. "  [" .. g.ClassName .. "]" .. ((g:IsA("TextLabel") and g.Text ~= "") and ("  = " .. string.sub(g.Text, 1, 40)) or "")
-					end
+					local m = {}
+					for _, x in ipairs(pressMethods(b)) do m[#m + 1] = x.name end
+					out[#out + 1] = b:GetFullName() .. "  [" .. b.ClassName .. "]  text=" .. string.sub(btnText(b), 1, 60) .. "  press=" .. table.concat(m, ",")
 				end
 			end
 		end
+		out[#out + 1] = "-- executor: getconnections=" .. tostring(getconnections ~= nil) .. " firesignal=" .. tostring(firesignal ~= nil) .. " VIM=" .. tostring(VIM ~= nil)
 		out[#out + 1] = "-- notes"
-		for i = math.max(1, #notes - 40), #notes do out[#out + 1] = notes[i] end
+		for i = math.max(1, #notes - 60), #notes do out[#out + 1] = notes[i] end
 		local txt = table.concat(out, "\n")
 		local saved = false
 		if writefile then saved = pcall(writefile, "milk_ahe_popupscan.txt", txt) end
@@ -2041,142 +2120,31 @@ local milkOk, milkErr = xpcall(function()
 		status = saved and "saved milk_ahe_popupscan.txt (also in clipboard)" or "popup scan copied to clipboard"
 	end
 
-	local hideDialog
-	---------------- replay state
-	local rep = { boss = nil, endedAt = nil, inMode = false, lastPos = nil, why = "idle", endGuiAt = -100, endGui = nil,
-		strong = false, presses = 0, lastPress = -100, remoteDone = false, counted = false, hidden = nil,
-		ignore = setmetatable({}, { __mode = "k" }) }
-
-	local REPLAY_BLOCK = { "egg", "hatch", "buy", "robux", "shop", "store", "milk", "ไข่", "ซื้อ" }
-	local replayCache = setmetatable({}, { __mode = "k" })
-	local function considerReplayBtn(b)
-		if not b:IsA("GuiButton") then return end
-		if hasWord(string.lower(b:GetFullName()), REPLAY_BLOCK) then return end
-		local t = btnText(b)
-		if hasWord(t, REPLAY_WORDS) and not hasWord(t, LEAVE_WORDS) and not hasWord(t, REPLAY_BLOCK) then replayCache[b] = true end
-	end
-	local function rescanReplay()
+	---------------- replay (end dialog: a replay button next to a home / leave button)
+	local function findReplayButton()
+		local lb = resolveBtn(L.replayBtn)
+		if lb and shown(lb) then return lb, "learned" end
 		local pg = LP:FindFirstChildOfClass("PlayerGui")
-		if not pg then return end
-		local all = pg:GetDescendants()
-		for i = 1, #all do
-			if all[i]:IsA("GuiButton") then pcall(considerReplayBtn, all[i]) end
-			if i % 600 == 0 then task.wait() end
-		end
-	end
-	-- a replay button that is on screen now and was not already there when the mode started
-	local function visibleReplayBtn()
-		local lb = resolveBtn(L.replayBtn) -- taught with Learn Replay: always wins
-		if lb and shown(lb) then return lb end
-		for b in pairs(replayCache) do
-			if not b.Parent then
-				replayCache[b] = nil
-			elseif not rep.ignore[b] and shown(b) then
-				return b
-			end
-		end
-		return nil
-	end
-
-	-- BossRoom_1..8 carry Center / Radius / Active: the room you stand in tells when its fight runs
-	local rooms, roomsAt = {}, -100
-	local function myRoom(pos)
-		if os.clock() - roomsAt > 10 then
-			roomsAt = os.clock()
-			rooms = {}
-			for _, r in ipairs(Workspace:GetChildren()) do
-				if string.sub(r.Name, 1, 9) == "BossRoom_" and typeof(r:GetAttribute("Center")) == "Vector3" then rooms[#rooms + 1] = r end
-			end
-		end
-		for _, r in ipairs(rooms) do
-			local c = r:GetAttribute("Center")
-			if flat(c, pos) <= (r:GetAttribute("Radius") or 142) * 1.3 and math.abs(pos.Y - c.Y) < 700 then return r end
-		end
-		return nil
-	end
-
-	local function modeStart(why)
-		if rep.inMode then return end
-		rep.inMode, rep.endedAt = true, nil
-		note("mode start (" .. why .. ")")
-		-- buttons that match "replay" but sit on the hud all the time are not the end dialog
-		if not rep.lastEndAt or os.clock() - rep.lastEndAt > 20 then
-			rep.ignore = setmetatable({}, { __mode = "k" })
-			for b in pairs(replayCache) do
-				if b.Parent and shown(b) then rep.ignore[b] = true end
-			end
-		end
-		-- a dialog hidden last round: if the game now hides it through a parent, give its own flag back
-		local dlg = rep.hidden
-		rep.hidden = nil
-		if dlg and dlg.Parent and not dlg.Visible then
-			local o, parentHidden = dlg.Parent, false
-			while o and not o:IsA("LayerCollector") do
-				if o:IsA("GuiObject") and not o.Visible then parentHidden = true break end
-				o = o.Parent
-			end
-			if o and o:IsA("ScreenGui") and not o.Enabled then parentHidden = true end
-			if parentHidden then dlg.Visible = true end
-		end
-	end
-	local function modeEnd(why, strong)
-		if not rep.inMode and rep.endedAt then
-			if strong then rep.strong = true end
-			return
-		end
-		rep.inMode, rep.boss = false, nil
-		rep.endedAt = os.clock()
-		rep.lastEndAt = rep.endedAt
-		rep.strong = strong or false
-		rep.presses, rep.lastPress, rep.remoteDone, rep.counted = 0, -100, false, false
-		note("mode end (" .. why .. ")")
-	end
-
-	do -- watch the gui for reward popups, end screens and replay buttons
-		local pg = LP:FindFirstChildOfClass("PlayerGui") or LP:WaitForChild("PlayerGui", 5)
-		if pg then
-			track(pg.DescendantAdded:Connect(function(d)
-				if d:IsA("GuiButton") then task.defer(pcall, considerReplayBtn, d) end
-				if not (d:IsA("GuiObject") or d:IsA("LayerCollector")) then return end
-				local lname = string.lower(d.Name)
-				if hasWord(lname, POPUP_WORDS) then
-					if os.clock() - popupAt > 2 then
-						popupGui = d
-						popupAt = os.clock()
-						stat.popups = stat.popups + 1
-						note("GUI popup: " .. d:GetFullName())
-						task.delay(cfg.ClaimDelay + 0.5, function() if running then autoClaim("gui") end end)
-					end
-				elseif hasWord(lname, END_WORDS) and os.clock() - rep.endGuiAt > 3 then
-					rep.endGuiAt, rep.endGui = os.clock(), d
-					note("GUI end screen: " .. d:GetFullName())
+		if not pg then return nil end
+		for _, b in ipairs(pg:GetDescendants()) do
+			if b:IsA("GuiButton") and shown(b) then
+				local t = btnText(b)
+				if hasWord(t, REPLAY_WORDS) and not hasWord(t, LEAVE_WORDS) and not hasWord(t, REPLAY_BLOCK)
+					and not hasWord(string.lower(b:GetFullName()), REPLAY_BLOCK) and dialogOf(b) then
+					return b, "found"
 				end
-			end))
-			task.spawn(rescanReplay)
-		end
-	end
-
-	-- smallest frame that holds both the replay and the home / leave button = the end dialog
-	local function dialogOf(b)
-		local o = b.Parent
-		while o and not o:IsA("LayerCollector") do
-			for _, d in ipairs(o:GetDescendants()) do
-				if d ~= b and d:IsA("GuiButton") and hasWord(btnText(d), LEAVE_WORDS) then return o end
 			end
-			o = o.Parent
 		end
 		return nil
 	end
-	hideDialog = function(b)
-		local dlg = dialogOf(b)
-		if not dlg or not dlg:IsA("GuiObject") then return end
-		task.delay(0.6, function()
-			if dlg.Parent and dlg.Visible then
-				dlg.Visible = false
-				rep.hidden = dlg
-				note("hid end dialog: " .. dlg:GetFullName())
-			end
-		end)
+
+	local hideDialog = function(b)
+		local dlg = dialogOf(b) or topFrame(b)
+		if dlg and dlg:IsA("GuiObject") and dlg.Visible then
+			dlg.Visible = false
+			rep.hidden = dlg
+			note("hid end dialog: " .. dlg:GetFullName())
+		end
 	end
 
 	local function fireReplayRemote()
@@ -2193,140 +2161,114 @@ local milkOk, milkErr = xpcall(function()
 		return true
 	end
 
-	-- test button: the replay button if one is on screen, else the call taught with Learn Replay
-	local function doReplay()
-		local b = visibleReplayBtn()
-		if b and pressButton(b, 1) then
-			note("replay button: " .. b:GetFullName())
-			hideDialog(b)
+	local busyReplay = false
+	local function replayOnce(b, how)
+		busyReplay = true
+		local _, hrp = getChar()
+		local startPos = hrp and hrp.Position
+		local moved = function()
+			local _, h2 = getChar()
+			return startPos and h2 and (h2.Position - startPos).Magnitude > 300
+		end
+		local ok, res = pcall(pressUntilGone, b, "replay " .. b.Name, moved)
+		if ok and res then
+			stat.replays = stat.replays + 1
+			rep.why = "replay #" .. stat.replays .. " (" .. how .. " button, " .. res .. ")"
+			if b.Parent and shown(b) then hideDialog(b) end
+		elseif fireReplayRemote() then
+			stat.replays = stat.replays + 1
+			rep.why = "button did not respond -> replay via learned remote"
+			task.wait(2)
+			if b.Parent and shown(b) then hideDialog(b) end
+		else
+			rep.why = "could not press " .. b.Name .. " - see Save Log / Popup Scan"
+		end
+		status = rep.why
+		rep.last = os.clock()
+		busyReplay = false
+	end
+
+	local function doReplay() -- test button
+		local b, how = findReplayButton()
+		if b then
+			task.spawn(replayOnce, b, how)
 			return "button " .. b.Name
 		end
 		if fireReplayRemote() then return "remote " .. tostring(L.replayCall.name) end
 		return nil
 	end
 
+	-- BossRoom_1..8: Active true -> false while you stand in it = that fight finished (used only for the learned-remote fallback)
+	local rooms, roomsAt = {}, -100
+	local function myRoom(pos)
+		if os.clock() - roomsAt > 10 then
+			roomsAt = os.clock()
+			rooms = {}
+			for _, r in ipairs(Workspace:GetChildren()) do
+				if string.sub(r.Name, 1, 9) == "BossRoom_" and typeof(r:GetAttribute("Center")) == "Vector3" then rooms[#rooms + 1] = r end
+			end
+		end
+		for _, r in ipairs(rooms) do
+			local c = r:GetAttribute("Center")
+			if flat(c, pos) <= (r:GetAttribute("Radius") or 142) * 1.3 and math.abs(pos.Y - c.Y) < 700 then return r end
+		end
+		return nil
+	end
+
 	task.spawn(function()
-		local seenPopup, rescanAt = -100, os.clock()
+		local seenAt, seenBtn = nil, nil
 		while running do
 			local now = os.clock()
 			local _, hrp = getChar()
 			if hrp then
-				local pos = hrp.Position
-				if rep.lastPos and (pos - rep.lastPos).Magnitude > 400 and now - D.lastDodge > 1.5 and not D.float then
-					if rep.inMode then
-						modeEnd("warp out", true)
-					elseif rep.endedAt and rep.presses == 0 and not rep.remoteDone and lastUserInput < rep.endedAt then
-						rep.strong = true -- sent back to the lobby after the fight: still the same ending
-						note("warp after mode end")
-					else
-						modeStart("warp in")
-					end
-				end
-				rep.lastPos = pos
-				local room = myRoom(pos)
+				local room = myRoom(hrp.Position)
 				local act = (room and room:GetAttribute("Active") == true) or false
-				if room and room == rep.room then
-					if act and not rep.roomActive then
-						modeStart(room.Name .. " active")
-					elseif rep.roomActive and not act then
-						modeEnd(room.Name .. " fight finished", true)
-					end
-				elseif act then
-					modeStart(room.Name .. " active")
-				end
+				if room == rep.room and rep.roomActive and not act then rep.endedAt = now end
+				if act then rep.endedAt = nil end
 				rep.room, rep.roomActive = room, act
-				if rep.boss then
-					if not rep.boss.Parent or (rep.boss:GetAttribute("HP") or 0) <= 0 then modeEnd("boss dead", false) end
-				else
-					local e, d = nearestEnemy(pos)
-					if e and d <= 250 and e:GetAttribute("Mob") ~= true then
-						rep.boss = e
-						modeStart("boss " .. e.Name)
-					end
-				end
-			else
-				rep.lastPos = nil
-				if rep.inMode then
-					local ch = LP.Character
-					local hm = ch and ch:FindFirstChildOfClass("Humanoid")
-					if hm and hm.Health <= 0 then modeEnd("you died", false) end
-				end
 			end
-			if OB.n > 0 then modeStart("obito") end
-			if rep.inMode and popupAt > seenPopup then modeEnd("reward popup", true) end
-			seenPopup = popupAt
-			if now - rep.endGuiAt < 1 and (rep.inMode or rep.endedAt) then modeEnd("end screen", true) end
-
-			local rb
-			if cfg.AutoReplay then
-				if now - rescanAt > 20 then
-					rescanAt = now
-					task.spawn(rescanReplay)
-				end
-				-- the taught button showing up is an ending by itself, even if no boss / mode was tracked
-				local lb = resolveBtn(L.replayBtn)
-				local lbShown = (lb and shown(lb)) or false
-				if lbShown and not rep.lbShown and not rep.endedAt and not learn.kind then
-					modeEnd("learned replay button appeared", true)
-				end
-				rep.lbShown = lbShown
-				if rep.inMode or rep.endedAt then
-					rb = visibleReplayBtn()
-					if rb then modeEnd("replay button on screen", true) end
-				end
+			-- a dialog hidden by us comes back when the game shows it again next round
+			if rep.hidden and rep.hidden.Parent and now - rep.last > 8 then
+				rep.hidden.Visible = true
+				rep.hidden = nil
 			end
-
-			if rep.endedAt then
-				local since = now - rep.endedAt
-				local wait_ = cfg.ReplayDelay + (cfg.AutoClaim and (cfg.ClaimDelay + 1) or 0)
-				-- pressed, but no new round started: bring the dialog back so it can be pressed again (or by you)
-				if rep.hidden and rep.presses >= 1 and now - rep.lastPress > 8 then
-					local dlg = rep.hidden
-					rep.hidden = nil
-					if dlg.Parent then
-						dlg.Visible = true
-						note("replay did not start a new round -> dialog restored")
-					end
-				end
-				if not cfg.AutoReplay then
-					rep.why = "mode ended (auto replay off)"
-				elseif userBusy() then
-					rep.why = "you are pressing things - replay paused"
-				elseif since < wait_ then
-					rep.why = string.format("replay in %.1f s", wait_ - since)
-				elseif rb and rep.presses < 3 and now - rep.lastPress > 4 then
-					rep.presses = rep.presses + 1
-					rep.lastPress = now
-					if pressButton(rb, rep.presses) then
-						if not rep.counted then
-							rep.counted = true
-							stat.replays = stat.replays + 1
-						end
-						note("replay button: " .. rb:GetFullName() .. " (press " .. rep.presses .. ")")
-						if rep.presses < 3 then hideDialog(rb) end
-						rep.why = "replay #" .. stat.replays .. " via button " .. rb.Name .. (rep.presses > 1 and (" (try " .. rep.presses .. ")") or "")
+			if cfg.AutoReplay and not busyReplay then
+				local b, how = findReplayButton()
+				if b then
+					rep.cand = b:GetFullName()
+					if b ~= seenBtn then seenBtn, seenAt = b, now end
+					local lbShown = (how == "learned")
+					if rep.lbShown and lbShown then
+						rep.why = "you pressed it yourself this round"
+					elseif userBusy() then
+						rep.why = "you are pressing things - replay paused"
+					elseif now - seenAt < cfg.ReplayDelay then
+						rep.why = string.format("replay button seen, pressing in %.1f s", cfg.ReplayDelay - (now - seenAt))
+					elseif now - rep.last > 6 then
+						rep.why = "pressing " .. b.Name .. " ..."
+						task.spawn(replayOnce, b, how)
 					else
-						rep.why = "replay button has no handler - use Learn Replay"
+						rep.why = "replay button back on screen, pressing again soon"
 					end
-					status = rep.why
-				elseif not rb and rep.presses == 0 and not rep.remoteDone and L.replayCall
-					and ((rep.strong and since >= wait_ + 1.5) or (since >= wait_ + 6 and not D.combat)) then
-					rep.remoteDone = true
-					if fireReplayRemote() then
-						rep.counted = true
-						stat.replays = stat.replays + 1
-						rep.why = "replay #" .. stat.replays .. " via remote " .. tostring(L.replayCall.name)
-						status = rep.why
+				else
+					seenBtn, seenAt = nil, nil
+					rep.lbShown = false
+					if rep.endedAt and L.replayCall and not rep.remoteDone and now - rep.endedAt > cfg.ReplayDelay + 3 then
+						rep.remoteDone = true
+						if fireReplayRemote() then
+							stat.replays = stat.replays + 1
+							rep.why = "no replay button seen -> learned remote"
+							rep.last = now
+						end
+					elseif not rep.endedAt then
+						rep.remoteDone = false
+						rep.why = rep.roomActive and "in boss room" or "waiting for the replay / home dialog"
 					end
-				elseif rep.presses == 0 and not rep.remoteDone then
-					rep.why = "mode ended - waiting for the replay button"
-						.. ((since > wait_ + 10 and not L.replayCall) and " (none seen: use Learn Replay)" or "")
 				end
-				if since > 90 then rep.endedAt = nil end
-			else
-				rep.why = rep.inMode and "in mode" or "waiting for a mode"
+			elseif not cfg.AutoReplay then
+				rep.why = "auto replay off"
 			end
-			task.wait(0.3)
+			task.wait(0.5)
 		end
 	end)
 
@@ -2504,6 +2446,8 @@ local milkOk, milkErr = xpcall(function()
 	cycle("Replay Delay", "ReplayDelay", RDELAYS, " s")
 	toggle("Auto Claim Reward Popup", "AutoClaim")
 	cycle("Claim Delay", "ClaimDelay", CDELAYS, " s")
+	toggle("Virtual Click If Nothing Else Works", "VClick")
+	toggle("Hide Popup If It Will Not Close", "HidePopup")
 	local function arm(kind, what)
 		learn.kind, learn.untilT, learn.clickAt, learn.gotRemote = kind, os.clock() + 30, nil, false
 		status = "LEARN " .. kind .. ": now click " .. what .. " in the game (30 s)"
@@ -2647,7 +2591,7 @@ local milkOk, milkErr = xpcall(function()
 	end))
 
 	section("LIVE")
-	local info = mk("TextLabel", { Size = UDim2.new(1, 0, 0, 250), BackgroundColor3 = PANEL, BorderSizePixel = 0, Text = "", TextColor3 = TXT, Font = Enum.Font.Code,
+	local info = mk("TextLabel", { Size = UDim2.new(1, 0, 0, 268), BackgroundColor3 = PANEL, BorderSizePixel = 0, Text = "", TextColor3 = TXT, Font = Enum.Font.Code,
 		TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, LayoutOrder = nextO() }, scroll)
 	mk("UICorner", { CornerRadius = UDim.new(0, 5) }, info)
 	mk("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingTop = UDim.new(0, 6) }, info)
@@ -2679,6 +2623,7 @@ local milkOk, milkErr = xpcall(function()
 					"wave escape : " .. dodgeSummary(),
 					"learn replay: " .. (L.replayBtn and ("btn " .. tostring(L.replayBtn.path[#L.replayBtn.path])) or "auto-find") .. (L.replayCall and ("  remote " .. tostring(L.replayCall.name)) or ""),
 					"replay      : " .. rep.why,
+					"claim       : " .. rep.claimWhy,
 					"replays     : " .. stat.replays,
 					"learn claim : " .. (L.claimBtn and ("btn " .. tostring(L.claimBtn.path[#L.claimBtn.path])) or "auto-find") .. (L.claim and ("  remote " .. tostring(L.claim.name)) or ""),
 					"popups " .. stat.popups .. "   claims " .. stat.claims,
