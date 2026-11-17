@@ -1,6 +1,6 @@
 --// milk :: Anime Hunting Egg  |  hatch hub
 --// auto hatch (learns the egg remote from one manual hatch) + auto sell + forest collect + egg stand esp + anti afk
---// auto dodge v8 (uses the boss attack data the server sends: circles / ring waves / slash cones / arrows) + auto replay v8 + auto popup v9.1 + drops + obito
+--// auto dodge v8 (boss attack data) + auto replay v8.1 (one press per round, never hides the dialog) + fast drop card claim + drops + obito
 --// Insert = hide/show window
 
 -- error catcher: if anything breaks on load, the reason shows on screen, in the console and in milk_ahe_error.txt
@@ -2156,7 +2156,7 @@ local milkOk, milkErr = xpcall(function()
 	local VIM
 	pcall(function() VIM = cloneref(game:GetService("VirtualInputManager")) end)
 	local GuiServiceB = S("GuiService")
-	local POPUP_PATH = { "bosseventui", "reward", "popup", "loot", "itemget", "drop", "claim", "obtain", "unbox" } -- AHE_BossEventUI = the item drop card after a boss
+	local POPUP_PATH = { "reward", "popup", "loot", "itemget", "drop", "claim", "obtain", "unbox" } -- AHE_BossEventUI = the item drop card after a boss
 	local POPUP_SKIP = { "login", "shop", "store", "battlepass", "robux", "buy", "purchase", "milk", "quest", "index", "settings", "codes", "egg" }
 	local REPLAY_BLOCK = { "egg", "hatch", "buy", "robux", "shop", "store", "milk", "ไข่", "ซื้อ" }
 	L.btnMethod = L.btnMethod or {}
@@ -2229,7 +2229,8 @@ local milkOk, milkErr = xpcall(function()
 	local function keyOf(b) return table.concat(pathOf(b), "/") end
 
 	-- press, wait, check it worked (button gone or you were moved), else the next method. returns method name or nil
-	local function pressUntilGone(b, label, okCheck)
+	local function pressUntilGone(b, label, okCheck, timeout)
+		timeout = timeout or 1.5
 		local key = keyOf(b)
 		local list = pressMethods(b)
 		if #list == 0 then
@@ -2250,8 +2251,12 @@ local milkOk, milkErr = xpcall(function()
 		for _, m in ipairs(list) do
 			if not running or not b.Parent or not shown(b) then break end
 			local fired = m.fn()
-			task.wait(1.8)
-			local worked = (not b.Parent) or (not shown(b)) or (okCheck and okCheck())
+			local t0 = os.clock()
+			local worked = false
+			repeat
+				task.wait(0.1)
+				worked = (not b.Parent) or (not shown(b)) or (okCheck and okCheck()) or false
+			until worked or os.clock() - t0 >= timeout or not running
 			note(string.format("%s: %s -> %s%s", label, m.name, fired and "fired" or "failed", worked and " WORKED" or " (still on screen)"))
 			if worked then
 				L.btnMethod[key] = m.name
@@ -2436,6 +2441,34 @@ local milkOk, milkErr = xpcall(function()
 	end
 	env.MilkHatch_PopupEvent = function() task.spawn(handlePopupEvent, os.clock()) end
 
+	-- AHE_BossEventUI drop card: checked every 0.15 s and pressed straight away
+	task.spawn(function()
+		local pressing = setmetatable({}, { __mode = "k" })
+		while running do
+			if cfg.AutoClaim then
+				local pg = LP:FindFirstChildOfClass("PlayerGui")
+				local ui = pg and pg:FindFirstChild("AHE_BossEventUI")
+				if ui and (not ui:IsA("ScreenGui") or ui.Enabled) then
+					for _, b in ipairs(ui:GetDescendants()) do
+						if b:IsA("GuiButton") and not pressing[b] and shown(b) then
+							pressing[b] = true
+							task.spawn(function()
+								local okP, res = pcall(pressUntilGone, b, "drop card", nil, 0.8)
+								if okP and res then
+									stat.claims = stat.claims + 1
+									rep.claimWhy = "drop card claimed (" .. res .. ")"
+								end
+								task.wait(0.3)
+								pressing[b] = nil
+							end)
+						end
+					end
+				end
+			end
+			task.wait(0.15)
+		end
+	end)
+
 	-- panels already known as popups: closed whenever they show up again, even without the event
 	task.spawn(function()
 		while running do
@@ -2446,7 +2479,7 @@ local milkOk, milkErr = xpcall(function()
 					for n in string.gmatch(key, "[^/]+") do
 						o = o and o:FindFirstChild(n)
 					end
-					if o and o ~= pg and o:IsA("GuiObject") and shown(o) and not userBusy() then
+					if o and o ~= pg and o:IsA("GuiObject") and shown(o) and key ~= "AHE_BossEventUI/Frame" then
 						popupBusy = true
 						local res = closePanel(o)
 						popupBusy = false
@@ -2457,7 +2490,7 @@ local milkOk, milkErr = xpcall(function()
 					end
 				end
 			end
-			task.wait(0.8)
+			task.wait(0.3)
 		end
 	end)
 
@@ -2558,14 +2591,6 @@ local milkOk, milkErr = xpcall(function()
 		return nil
 	end
 
-	local hideDialog = function(b)
-		local dlg = dialogOf(b) or topFrame(b)
-		if dlg and dlg:IsA("GuiObject") and dlg.Visible then
-			dlg.Visible = false
-			rep.hidden = dlg
-			note("hid end dialog: " .. dlg:GetFullName())
-		end
-	end
 
 	local function fireReplayRemote()
 		local c = L.replayCall
@@ -2584,22 +2609,23 @@ local milkOk, milkErr = xpcall(function()
 	local busyReplay = false
 	local function replayOnce(b, how)
 		busyReplay = true
+		rep.last = os.clock()
+		rep.armed = false
 		local _, hrp = getChar()
 		local startPos = hrp and hrp.Position
-		local moved = function()
+		local wasActive = rep.roomActive
+		local started = function() -- the game reacted: warped, a fight started, or the dialog went away
 			local _, h2 = getChar()
-			return startPos and h2 and (h2.Position - startPos).Magnitude > 300
+			if startPos and h2 and (h2.Position - startPos).Magnitude > 300 then return true end
+			return rep.roomActive and not wasActive
 		end
-		local ok, res = pcall(pressUntilGone, b, "replay " .. b.Name, moved)
+		local ok, res = pcall(pressUntilGone, b, "replay " .. b.Name, started, 12)
 		if ok and res then
 			stat.replays = stat.replays + 1
 			rep.why = "replay #" .. stat.replays .. " (" .. how .. " button, " .. res .. ")"
-			if b.Parent and shown(b) then hideDialog(b) end
 		elseif fireReplayRemote() then
 			stat.replays = stat.replays + 1
 			rep.why = "button did not respond -> replay via learned remote"
-			task.wait(2)
-			if b.Parent and shown(b) then hideDialog(b) end
 		else
 			rep.why = "could not press " .. b.Name .. " - see Save Log / Popup Scan"
 		end
@@ -2647,11 +2673,6 @@ local milkOk, milkErr = xpcall(function()
 				if act then rep.endedAt = nil end
 				rep.room, rep.roomActive = room, act
 			end
-			-- a dialog hidden by us comes back when the game shows it again next round
-			if rep.hidden and rep.hidden.Parent and now - rep.last > 8 then
-				rep.hidden.Visible = true
-				rep.hidden = nil
-			end
 			if cfg.AutoReplay and not busyReplay then
 				local b, how = findReplayButton()
 				if b then
@@ -2664,15 +2685,18 @@ local milkOk, milkErr = xpcall(function()
 						rep.why = "you are pressing things - replay paused"
 					elseif now - seenAt < cfg.ReplayDelay then
 						rep.why = string.format("replay button seen, pressing in %.1f s", cfg.ReplayDelay - (now - seenAt))
-					elseif now - rep.last > 6 then
+					elseif rep.armed == false then
+						rep.why = "pressed replay - waiting for the dialog to close before the next one"
+					elseif now - rep.last > 15 then
 						rep.why = "pressing " .. b.Name .. " ..."
 						task.spawn(replayOnce, b, how)
 					else
-						rep.why = "replay button back on screen, pressing again soon"
+						rep.why = "replay pressed recently, waiting"
 					end
 				else
 					seenBtn, seenAt = nil, nil
 					rep.lbShown = false
+					rep.armed = true -- dialog closed: the next one that shows up is a new round's
 					if rep.endedAt and L.replayCall and not rep.remoteDone and now - rep.endedAt > cfg.ReplayDelay + 3 then
 						rep.remoteDone = true
 						if fireReplayRemote() then
