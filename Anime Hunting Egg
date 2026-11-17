@@ -1,6 +1,6 @@
 --// milk :: Anime Hunting Egg  |  hatch hub
 --// auto hatch (learns the egg remote from one manual hatch) + auto sell + forest collect + egg stand esp + anti afk
---// auto dodge v7.1 (ground first, float capped) + auto replay v8 + auto popup v9.1 + dropped item pickup + obito helper
+--// auto dodge v8 (uses the boss attack data the server sends: circles / ring waves / slash cones / arrows) + auto replay v8 + auto popup v9.1 + drops + obito
 --// Insert = hide/show window
 
 -- error catcher: if anything breaks on load, the reason shows on screen, in the console and in milk_ahe_error.txt
@@ -59,7 +59,7 @@ local milkOk, milkErr = xpcall(function()
 		Collect = false, CollectReturn = true,
 		ESP = true, AntiAfk = true, Spy = false,
 		Dodge = true, AnimDodge = true, WaveFloat = true, ReturnBack = true, ShowHazards = false,
-		Margin = 6, MinDodge = 30, FloatMin = 20, FloatMax = 45, WideDetect = true, LearnHits = true, HitDodge = true, EscapeOnUlt = false,
+		Margin = 6, MinDodge = 30, FloatMin = 20, FloatMax = 45, WideDetect = true, UseAttackData = true, LearnHits = true, HitDodge = true, EscapeOnUlt = false,
 		AutoReplay = false, ReplayDelay = 2, AutoClaim = true, ClaimDelay = 0.3, VClick = true, HidePopup = true, PickDrops = true,
 		Obito = false,
 	}
@@ -582,15 +582,15 @@ local milkOk, milkErr = xpcall(function()
 		lastHp = nil, lastMiss = 0, float = nil, combat = false, lastHazAt = -100,
 		lastFloor = nil, floorAt = 0, arenas = {}, arenaAt = -100,
 		boost = 1, far = false, lastCast = -100, learned = {}, learnedN = 0,
-		wmode = {}, sigLearn = {}, sigs = {},
+		wmode = {}, sigLearn = {}, sigs = {}, specUntil = -100,
 	}
 	do
 		local keep = env.MilkHatch_DodgeLearn
-		if type(keep) == "table" then
+		if type(keep) == "table" and keep.v == 2 then
 			D.wmode, D.sigLearn, D.learned = keep.wmode or {}, keep.sigLearn or {}, keep.learned or {}
 			for _, c in pairs(D.learned) do if c >= 2 then D.learnedN = D.learnedN + 1 end end
 		end
-		env.MilkHatch_DodgeLearn = { wmode = D.wmode, sigLearn = D.sigLearn, learned = D.learned }
+		env.MilkHatch_DodgeLearn = { v = 2, wmode = D.wmode, sigLearn = D.sigLearn, learned = D.learned }
 	end
 	local nearestEnemy, makeBox, rmHaz, resetDodgeLearning, pushSignalRef, dodgeSummary, waveGroundEscape
 	do
@@ -928,6 +928,29 @@ local milkOk, milkErr = xpcall(function()
 			return math.abs(rl[1]) <= ax[1] / 2 + margin and math.abs(rl[2]) <= ax[2] / 2 + margin and math.abs(rl[3]) <= ax[3] / 2 + margin
 		end
 
+		-- exact attacks sent by the server (AHE_Boss "Attack", AHE_Guardian "Warn", AHE_Suruka "Arrows")
+		local function specActive() return cfg.UseAttackData and os.clock() < D.specUntil end
+		local function zoneHit(z, pos, margin, now)
+			if z.kind == "ring" then
+				local d = flat(pos, z.center)
+				if math.abs(pos.Y - z.center.Y) > 40 or d > z.maxR + z.w / 2 + margin then return false end
+				local r1 = math.clamp(z.speed * (now - z.t0), 0, z.maxR)
+				local r2 = math.clamp(z.speed * (now + 0.45 - z.t0), 0, z.maxR)
+				if now + 0.45 < z.t0 then return false end
+				return d >= r1 - z.w / 2 - margin and d <= r2 + z.w / 2 + margin
+			elseif z.kind == "cone" then
+				if math.abs(pos.Y - z.center.Y) > 40 then return false end
+				local v = Vector3.new(pos.X - z.center.X, 0, pos.Z - z.center.Z)
+				local d = v.Magnitude
+				if d > z.r + margin then return false end
+				if d < 6 + margin then return true end
+				local cosA = (v.X * z.dir.X + v.Z * z.dir.Z) / d
+				local ang = math.acos(math.clamp(cosA, -1, 1))
+				return ang <= z.half + math.atan2(margin, d)
+			end
+			return flat(pos, z.center) <= z.r + margin and math.abs(pos.Y - z.center.Y) < math.max(30, z.r)
+		end
+
 		local function addZone(c, r, life)
 			D.zones[#D.zones + 1] = { center = c, r = r, untilT = os.clock() + life }
 			D.lastHazAt = os.clock()
@@ -979,7 +1002,7 @@ local milkOk, milkErr = xpcall(function()
 		end
 
 		-- every known hazard / zone. withWaves = also count 360 waves; k scales how far ahead growth is predicted
-		local function danger(pos, margin, withWaves, k)
+		local function danger(pos, margin, withWaves, k, skipRing)
 			k = k or 1
 			if #D.zones > 0 then
 				local now = os.clock()
@@ -987,14 +1010,15 @@ local milkOk, milkErr = xpcall(function()
 					local z = D.zones[i]
 					if now > z.untilT then
 						table.remove(D.zones, i)
-					elseif flat(pos, z.center) <= z.r + margin and math.abs(pos.Y - z.center.Y) < math.max(30, z.r) then
-						return true, z.center
+					elseif not (skipRing and z.kind == "ring") and zoneHit(z, pos, margin, now) then
+						return true, z.center, nil, z
 					end
 				end
 			end
+			local spec = specActive() -- exact attack data in use: fx parts stay plain ground hazards (no growth guess, no waves)
 			for part, h in pairs(D.haz) do
-				if part.Parent and (withWaves or not h.wave) then
-					local m = margin + h.grow * k
+				if part.Parent and (spec or withWaves or not h.wave) then
+					local m = margin + (spec and 0 or h.grow * k)
 					if inside(h, pos, m) then return true, part.Position, h end
 					if h.speed > 8 then -- moving hazard / projectile: where it will be over the next 0.6 s
 						local v = h.vel
@@ -1058,10 +1082,10 @@ local milkOk, milkErr = xpcall(function()
 						local r, isFlat = footprint(h)
 						h.radius, h.flat = r, isFlat
 						local was = h.wave
-						h.wave = (nearBossFlat(p, 22)
+						h.wave = (not specActive()) and ((nearBossFlat(p, 22)
 							and (h.waveNamed or (isFlat and (r >= 25 or h.rate > 15)) or (h.shape == BALL and h.rate > 10)))
 							or (h.rate > 25 and r >= 12 and (isFlat or h.shape == BALL or h.shape == CYL)) -- shockwave racing outwards
-							or (h.waveNamed and h.rate > 5) or false
+							or (h.waveNamed and h.rate > 5)) or false
 						if h.wave and not was then
 							note(string.format("WAVE %s r=%.0f rate=%.0f", part.Name, r, h.rate))
 							if h.box then h.box.Color3 = Color3.fromRGB(255, 200, 40) end
@@ -1073,6 +1097,7 @@ local milkOk, milkErr = xpcall(function()
 		end
 
 		local function waveThreat(pos)
+			if specActive() then return false end
 			for part, h in pairs(D.haz) do
 				if h.wave and part.Parent then
 					local c = part.Position
@@ -1111,7 +1136,7 @@ local milkOk, milkErr = xpcall(function()
 				end
 			end
 			for _, z in ipairs(D.zones) do
-				if flat(gpos, z.center) <= z.r + m and z.r + 8 > H then H = z.r + 8 end
+				if (z.kind == nil or z.kind == "circle") and flat(gpos, z.center) <= z.r + m and z.r + 8 > H then H = z.r + 8 end
 			end
 			return math.min(H * D.boost, cfg.FloatMax) -- capped: your units follow you and cannot reach the boss from high up
 		end
@@ -1246,7 +1271,8 @@ local milkOk, milkErr = xpcall(function()
 			local sg = D.sigs
 			sg[#sg + 1] = { k = key, t = now }
 			while sg[1] and now - sg[1].t > 6 do table.remove(sg, 1) end
-			if not cfg.Dodge then return end
+			if not cfg.Dodge or specActive() then return end
+			if string.find(key, "ANIM:animation", 1, true) then return end -- unnamed anims: too generic to learn
 			local l = D.sigLearn[key]
 			local always = cfg.EscapeOnUlt and (string.sub(key, 1, 3) == "ULT" or string.sub(key, 1, 5) == "ROAR:")
 			if not ((l and l.c >= 2) or always) then return end
@@ -1264,6 +1290,7 @@ local milkOk, milkErr = xpcall(function()
 
 		-- a hit: every signal seen in the last 4 s gets the blame; two hits after the same signal = it is dodged from then on
 		local function blameSignals(now)
+			if specActive() then return end
 			for _, sgl in ipairs(D.sigs) do
 				local dt = now - sgl.t
 				if dt <= 4 and not sgl.blamed then
@@ -1435,15 +1462,17 @@ local milkOk, milkErr = xpcall(function()
 			local f = D.float
 			if f then
 				D.lastDodge = now
-				local want = escapePos(f)
-				if f.mode == 1 then
+				local want = f.hop and f.pos or escapePos(f)
+				if f.hop then
+					-- fixed low hop over a ring
+				elseif f.mode == 1 then
 					if want.Y > f.pos.Y then f.pos = want end
 				elseif flat(want, f.ground) > flat(f.pos, f.ground) + 5 or want.Y > f.pos.Y + 5 then
 					f.pos = want
 				end
 				local threatened, threat = danger(f.ground, cfg.Margin + 4, true, 1.5)
 				if now < f.holdUntil then threatened = true end
-				if lost > 0.02 and now - f.t0 > 0.15 and now - f.lastBoost > 0.4 then
+				if lost > 0.02 and now - f.t0 > 0.15 and now - f.lastBoost > 0.4 and not specActive() then
 					f.lastBoost = now
 					f.hits = f.hits + 1
 					D.misses = D.misses + 1
@@ -1491,7 +1520,7 @@ local milkOk, milkErr = xpcall(function()
 			if lost > 0.03 and now - D.lastMiss > 0.7 and (D.combat or now - D.lastHazAt < 15) then
 				D.lastMiss = now
 				D.misses = D.misses + 1
-				if D.lastWaveGround and now - D.lastWaveGround < 2.5 then
+				if D.lastWaveGround and now - D.lastWaveGround < 2.5 and not specActive() then
 					local bk = bossKey()
 					if (D.wmode[bk] or 0) == 0 then
 						D.wmode[bk] = 1
@@ -1504,6 +1533,50 @@ local milkOk, milkErr = xpcall(function()
 					if cfg.LearnHits then blameSignals(now) end
 				else
 					unpredicted = true
+				end
+			end
+
+			-- server ring wave: teleport just behind the ring towards its centre; the ring keeps moving away from you
+			local ringWait = false
+			for _, z in ipairs(D.zones) do
+				if z.kind == "ring" and now <= z.untilT and math.abs(pos.Y - z.center.Y) < 40 then
+					local d = flat(pos, z.center)
+					local rNow = math.clamp(z.speed * (now - z.t0), 0, z.maxR)
+					local ahead = d - rNow
+					local m = cfg.Margin
+					if d <= z.maxR + z.w / 2 + m and ahead > -(z.w / 2 + m) and ahead <= z.speed * 0.45 + z.w / 2 + m and now >= z.t0 - 0.45 then
+						local td = rNow - z.w / 2 - m - 6
+						local tgt
+						if td >= 4 and refY then
+							local dir = Vector3.new(pos.X - z.center.X, 0, pos.Z - z.center.Z)
+							dir = dir.Magnitude > 0.5 and dir.Unit or Vector3.new(1, 0, 0)
+							for _, rot in ipairs({ 0, 0.3, -0.3, 0.6, -0.6 }) do
+								local c, sn = math.cos(rot), math.sin(rot)
+								local dd = Vector3.new(dir.X * c - dir.Z * sn, 0, dir.X * sn + dir.Z * c)
+								local x, zz = z.center.X + dd.X * td, z.center.Z + dd.Z * td
+								local g = snap(x, zz, refY, off)
+								if g and not danger(g, m, true, 1) then tgt = g break end
+							end
+						end
+						if tgt then
+							if not D.origin and refY then D.origin = Vector3.new(pos.X, refY + off, pos.Z) end
+							D.dodges = D.dodges + 1
+							D.lastDodge, D.safeSince = now, 0
+							tp(tgt)
+							status = string.format("ring wave -> behind it (%.0f studs)", flat(pos, tgt))
+							return
+						elseif ahead <= z.speed * 0.25 + z.w / 2 + m then
+							-- ring still too small to get behind: hop over it
+							local hold = (z.w + 2 * m) / z.speed + 0.3
+							startFloat(hrp, pos, refY, off, "ring wave (hop)", hold)
+							D.float.mode = 1
+							D.float.hop = true
+							D.float.pos = Vector3.new(D.float.ground.X, D.float.baseY + math.min(cfg.FloatMin, cfg.FloatMax), D.float.ground.Z)
+							return
+						else
+							ringWait = true -- not close enough yet to get behind it: wait, do not run ahead of it
+						end
+					end
 				end
 			end
 
@@ -1524,7 +1597,7 @@ local milkOk, milkErr = xpcall(function()
 
 			local inDanger, threat, hz = false, nil, nil
 			if D.hazN > 0 or #D.zones > 0 then
-				inDanger, threat, hz = danger(pos, cfg.Margin, D.far or not cfg.WaveFloat, 1)
+				inDanger, threat, hz = danger(pos, cfg.Margin, D.far or not cfg.WaveFloat, 1, true) -- rings are handled above
 			end
 
 			if inDanger then
@@ -1633,6 +1706,95 @@ local milkOk, milkErr = xpcall(function()
 			end
 		end
 
+		local function vec(v)
+			if typeof(v) == "Vector3" then return v end
+			if typeof(v) == "CFrame" then return v.Position end
+			return nil
+		end
+		local function flatDir(v)
+			v = vec(v)
+			if not v then return nil end
+			local f = Vector3.new(v.X, 0, v.Z)
+			return f.Magnitude > 0.01 and f.Unit or nil
+		end
+		local seenKinds = {}
+		local function circleZone(c, r, life)
+			D.zones[#D.zones + 1] = { kind = "circle", center = c, r = r, untilT = os.clock() + life }
+		end
+		-- returns true when the attack was understood exactly
+		local function parseAttack(nm, a)
+			local now = os.clock()
+			if a[1] == "Hit" then return true end
+			if nm == "AHE_Suruka" and a[1] == "Arrows" and type(a[2]) == "table" then
+				local warn, r = tonumber(a[3]) or 1, tonumber(a[4]) or 6
+				local n = 0
+				for _, v in pairs(a[2]) do
+					local c = vec(v)
+					if c then circleZone(c, r, warn + 0.5) n = n + 1 end
+				end
+				D.specUntil = now + 30
+				note(string.format("ATTACK arrows x%d r=%.0f in %.1f s", n, r, warn))
+				return true
+			end
+			local t
+			for i = 1, a.n do
+				if type(a[i]) == "table" and (a[i].Kind or a[i].Radius or a[i].MaxR or a[i].Origin or a[i].Spots) then t = a[i] break end
+			end
+			if not t then return false end
+			local kind = tostring(t.Kind or (type(a[2]) == "string" and a[2]) or "?")
+			local warn = tonumber(t.Warn) or 1
+			local origin = vec(t.Origin) or vec(t.Position) or vec(t.Center)
+			if type(t.Spots) == "table" and tonumber(t.Radius) then
+				local n = 0
+				for _, v in pairs(t.Spots) do
+					local c = vec(v)
+					if c then circleZone(c, tonumber(t.Radius), warn + 0.5) n = n + 1 end
+				end
+				D.specUntil = now + 30
+				note(string.format("ATTACK %s x%d r=%.0f in %.1f s", kind, n, tonumber(t.Radius), warn))
+				return true
+			end
+			if origin and tonumber(t.Speed) and (tonumber(t.MaxR) or tonumber(t.Radius)) then
+				local maxR = tonumber(t.MaxR) or tonumber(t.Radius)
+				local speed = tonumber(t.Speed)
+				local z = { kind = "ring", center = origin, speed = speed, maxR = maxR, w = tonumber(t.Width) or 8, t0 = now + warn }
+				z.r = maxR
+				z.untilT = z.t0 + maxR / speed + 0.4
+				D.zones[#D.zones + 1] = z
+				D.specUntil = now + 30
+				note(string.format("ATTACK %s ring speed=%.0f width=%.0f maxR=%.0f in %.1f s", kind, speed, z.w, maxR, warn))
+				return true
+			end
+			local dir = flatDir(t.Dir) or flatDir(t.Direction) or flatDir(t.Look)
+			if origin and dir and tonumber(t.Angle) then
+				local r = tonumber(t.Radius) or tonumber(t.MaxR) or tonumber(t.Range) or 300
+				local half = math.rad(tonumber(t.Angle)) -- read as the half angle: the safe side if it is the full one
+				D.zones[#D.zones + 1] = { kind = "cone", center = origin, dir = dir, half = half, r = r, untilT = now + warn + 0.45 }
+				D.specUntil = now + 30
+				note(string.format("ATTACK %s cone %.0f deg r=%.0f in %.1f s", kind, tonumber(t.Angle), r, warn))
+				return true
+			end
+			if origin and dir and (tonumber(t.Width) or tonumber(t.Length)) then -- straight beam / dash
+				local len = tonumber(t.Length) or tonumber(t.Range) or tonumber(t.Radius) or 300
+				local w = tonumber(t.Width) or 10
+				D.zones[#D.zones + 1] = { kind = "cone", center = origin, dir = dir, half = math.atan2(w / 2, len / 2), r = len, untilT = now + warn + 0.45 }
+				D.specUntil = now + 30
+				note(string.format("ATTACK %s line w=%.0f len=%.0f in %.1f s", kind, w, len, warn))
+				return true
+			end
+			if origin and tonumber(t.Radius) then
+				circleZone(origin, tonumber(t.Radius), warn + 0.5)
+				D.specUntil = now + 30
+				note(string.format("ATTACK %s circle r=%.0f in %.1f s", kind, tonumber(t.Radius), warn))
+				return true
+			end
+			if not seenKinds[kind] then
+				seenKinds[kind] = true
+				note("UNKNOWN attack kind " .. kind .. " (send me this log)")
+			end
+			return false
+		end
+
 		for _, nm in ipairs(CAST_EVENTS) do
 			local ev = RS:FindFirstChild(nm, true)
 			if ev and (ev:IsA("RemoteEvent") or ev:IsA("UnreliableRemoteEvent")) then
@@ -1649,7 +1811,11 @@ local milkOk, milkErr = xpcall(function()
 						local tag = (type(a[1]) == "string" and #a[1] < 40) and (":" .. a[1]) or ""
 						pushSignal((nm == "AHE_BossUlt" and "ULT" or ("CAST:" .. nm)) .. tag)
 					end
-					if cfg.WideDetect then
+					local okP, understood = pcall(parseAttack, nm, a)
+					if not okP then note("attack parse error: " .. tostring(understood)) understood = false end
+					if understood then
+						pcall(step, 0) -- react this frame
+					elseif cfg.WideDetect then
 						local _, hrp = getChar()
 						if hrp then pcall(scanArgs, a, 1, hrp.Position) end
 					end
@@ -2667,6 +2833,7 @@ local milkOk, milkErr = xpcall(function()
 	cycle("Float Height (min)", "FloatMin", FLOATS, " studs")
 	cycle("Float Height (max)", "FloatMax", FLOATMAX, " studs")
 	toggle("Anim Pre-Dodge", "AnimDodge")
+	toggle("Use Boss Attack Data (exact)", "UseAttackData")
 	toggle("Wide Detect (fx folders / names / casts)", "WideDetect")
 	toggle("Move Away On Unpredicted Hit", "HitDodge")
 	toggle("Escape On Boss Ult / Roar", "EscapeOnUlt")
