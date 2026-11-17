@@ -1,6 +1,6 @@
 --// milk :: Anime Hunting Egg  |  hatch hub
 --// auto hatch (learns the egg remote from one manual hatch) + auto sell + forest collect + egg stand esp + anti afk
---// auto dodge v6 (tracked hazards, radius-scaled float, miss log + learning) + auto replay v6 + auto claim + obito helper
+--// auto dodge v7 (wave escape up / out / out+up learned per boss, signal learning) + auto replay v6 + auto claim + obito helper
 --// Insert = hide/show window
 
 -- error catcher: if anything breaks on load, the reason shows on screen, in the console and in milk_ahe_error.txt
@@ -59,7 +59,7 @@ local milkOk, milkErr = xpcall(function()
 		Collect = false, CollectReturn = true,
 		ESP = true, AntiAfk = true, Spy = false,
 		Dodge = true, AnimDodge = true, WaveFloat = true, ReturnBack = true, ShowHazards = false,
-		Margin = 6, MinDodge = 30, FloatMin = 30, WideDetect = true, LearnHits = true, HitDodge = true,
+		Margin = 6, MinDodge = 30, FloatMin = 30, WideDetect = true, LearnHits = true, HitDodge = true, EscapeOnUlt = true,
 		AutoReplay = false, ReplayDelay = 2, AutoClaim = true, ClaimDelay = 0.3,
 		Obito = false,
 	}
@@ -585,8 +585,17 @@ local milkOk, milkErr = xpcall(function()
 		lastHp = nil, lastMiss = 0, float = nil, combat = false, lastHazAt = -100,
 		lastFloor = nil, floorAt = 0, arenas = {}, arenaAt = -100,
 		boost = 1, far = false, lastCast = -100, learned = {}, learnedN = 0,
+		wmode = {}, sigLearn = {}, sigs = {},
 	}
-	local nearestEnemy, makeBox, rmHaz, resetDodgeLearning
+	do
+		local keep = env.MilkHatch_DodgeLearn
+		if type(keep) == "table" then
+			D.wmode, D.sigLearn, D.learned = keep.wmode or {}, keep.sigLearn or {}, keep.learned or {}
+			for _, c in pairs(D.learned) do if c >= 2 then D.learnedN = D.learnedN + 1 end end
+		end
+		env.MilkHatch_DodgeLearn = { wmode = D.wmode, sigLearn = D.sigLearn, learned = D.learned }
+	end
+	local nearestEnemy, makeBox, rmHaz, resetDodgeLearning, pushSignalRef, dodgeSummary
 	do
 		local VR = 12             -- a flat telegraph hits this far above / below itself
 		local MAX_HAZ = 120
@@ -722,6 +731,7 @@ local milkOk, milkErr = xpcall(function()
 						if m:GetAttribute("Roaring") == true then
 							D.lastCast = os.clock()
 							note("ROAR " .. tostring(m:GetAttribute("BossName") or m.Name))
+							if pushSignalRef then pushSignalRef("ROAR:" .. tostring(m:GetAttribute("BossId") or m.Name)) end
 						end
 					end))
 				end
@@ -1051,8 +1061,10 @@ local milkOk, milkErr = xpcall(function()
 						local r, isFlat = footprint(h)
 						h.radius, h.flat = r, isFlat
 						local was = h.wave
-						h.wave = nearBossFlat(p, 22)
-							and (h.waveNamed or (isFlat and (r >= 25 or h.rate > 15)) or (h.shape == BALL and h.rate > 10)) or false
+						h.wave = (nearBossFlat(p, 22)
+							and (h.waveNamed or (isFlat and (r >= 25 or h.rate > 15)) or (h.shape == BALL and h.rate > 10)))
+							or (h.rate > 25 and r >= 12 and (isFlat or h.shape == BALL or h.shape == CYL)) -- shockwave racing outwards
+							or (h.waveNamed and h.rate > 5) or false
 						if h.wave and not was then
 							note(string.format("WAVE %s r=%.0f rate=%.0f", part.Name, r, h.rate))
 							if h.box then h.box.Color3 = Color3.fromRGB(255, 200, 40) end
@@ -1144,17 +1156,96 @@ local milkOk, milkErr = xpcall(function()
 			return nil
 		end
 
-		local function startFloat(hrp, pos, refY, off, why)
+		-- wave escape, learned per boss:  1 = go straight up   2 = hover outside the wave's reach   3 = outside and high
+		local MODE_NAME = { "up", "out", "out+up" }
+		local function bossKey()
+			local _, hrp = getChar()
+			local m = hrp and nearestEnemy(hrp.Position)
+			if not m then return "?" end
+			return tostring(m:GetAttribute("BossId") or m:GetAttribute("BossName") or m.Name)
+		end
+		local function waveMode() return D.wmode[bossKey()] or 1 end
+
+		dodgeSummary = function()
+			local sig = 0
+			for _, l in pairs(D.sigLearn) do if l.c >= 2 then sig = sig + 1 end end
+			return string.format("%s  signals %d  parts %d  x%.1f", MODE_NAME[waveMode()], sig, D.learnedN, D.boost)
+		end
+
+		local function escapePos(f)
+			local mode = f.mode
+			local H = needHeight(f.ground, f.baseY)
+			if mode == 1 then return Vector3.new(f.ground.X, f.baseY + H, f.ground.Z) end
+			-- centre of the trouble: the fight room, else the boss, else the biggest wave
+			local c, ar = arenaFor(f.ground)
+			local reach, wc = 0, nil
+			for part, h in pairs(D.haz) do
+				if part.Parent and (h.wave or h.big >= 20) then
+					local r = h.radius + math.min(h.rate * 0.6, 200)
+					if r > reach then reach, wc = r, part.Position end
+				end
+			end
+			if not c then
+				local _, _, bp = nearestEnemy(f.ground)
+				c = bp or wc or f.ground
+			end
+			local dir = Vector3.new(f.ground.X - c.X, 0, f.ground.Z - c.Z)
+			dir = dir.Magnitude > 1 and dir.Unit or Vector3.new(1, 0, 0)
+			local dist = math.min(math.max(ar or 0, reach, flat(f.ground, c)) + 70 * D.boost, 900)
+			local y = (mode == 3) and (f.baseY + H) or (f.baseY + 4)
+			return Vector3.new(c.X + dir.X * dist, y, c.Z + dir.Z * dist)
+		end
+
+		local function startFloat(hrp, pos, refY, off, why, hold)
 			local now = os.clock()
 			local baseY = refY and (refY + off) or pos.Y
 			local g = Vector3.new(pos.X, baseY, pos.Z)
-			local H = needHeight(g, baseY)
-			D.float = { ground = g, baseY = baseY, off = off, pos = Vector3.new(pos.X, baseY + H, pos.Z), t0 = now, hits = 0, lastBoost = 0, clearAt = nil }
+			local f = { ground = g, baseY = baseY, off = off, t0 = now, hits = 0, lastBoost = 0, clearAt = nil,
+				mode = waveMode(), boss = bossKey(), holdUntil = now + (hold or 0) }
+			f.pos = escapePos(f)
+			D.float = f
 			D.floats = D.floats + 1
 			D.lastDodge = now
-			hrp.CFrame = CFrame.new(D.float.pos) * hrp.CFrame.Rotation
+			hrp.CFrame = CFrame.new(f.pos) * hrp.CFrame.Rotation
 			hrp.AssemblyLinearVelocity = Vector3.zero
-			status = string.format("%s -> float +%.0f studs (#%d)", why, H, D.floats)
+			status = string.format("%s -> escape %s (#%d)", why, MODE_NAME[f.mode], D.floats)
+		end
+
+		------------ boss signals (roar / ult / attack anims / cast events), learned from hits
+		local function pushSignal(key)
+			local now = os.clock()
+			local sg = D.sigs
+			sg[#sg + 1] = { k = key, t = now }
+			while sg[1] and now - sg[1].t > 6 do table.remove(sg, 1) end
+			if not cfg.Dodge then return end
+			local l = D.sigLearn[key]
+			local always = cfg.EscapeOnUlt and (string.sub(key, 1, 3) == "ULT" or string.sub(key, 1, 5) == "ROAR:")
+			if not ((l and l.c >= 2) or always) then return end
+			local hold = (l and l.hold) or 2.5
+			local f = D.float
+			if f then
+				f.holdUntil = math.max(f.holdUntil, now + hold)
+				return
+			end
+			local _, hrp, hum = getChar()
+			if not hrp then return end
+			startFloat(hrp, hrp.Position, D.lastFloor, standOffset(hrp, hum), "signal " .. key, hold)
+			note(string.format("SIGNAL %s -> escape %s for %.1f s", key, MODE_NAME[D.float.mode], hold))
+		end
+
+		-- a hit: every signal seen in the last 4 s gets the blame; two hits after the same signal = it is dodged from then on
+		local function blameSignals(now)
+			for _, sgl in ipairs(D.sigs) do
+				local dt = now - sgl.t
+				if dt <= 4 and not sgl.blamed then
+					sgl.blamed = true
+					local l = D.sigLearn[sgl.k] or { c = 0, hold = 2.5 }
+					l.c = l.c + 1
+					l.hold = math.min(math.max(l.hold, dt + 1), 6)
+					D.sigLearn[sgl.k] = l
+					if l.c == 2 then note(string.format("LEARNED signal %s (hold %.1f s)", sgl.k, l.hold)) end
+				end
+			end
 		end
 
 		------------ wide detection: attack parts that are not inside AHE_BossAttacks
@@ -1208,6 +1299,14 @@ local milkOk, milkErr = xpcall(function()
 		-- a hit nothing predicted: write down what appeared around you so the detector can be fixed / can learn
 		local function logMiss(pos, lost)
 			local now = os.clock()
+			if cfg.LearnHits then blameSignals(now) end
+			do
+				local list = {}
+				for _, sgl in ipairs(D.sigs) do
+					if now - sgl.t <= 4 then list[#list + 1] = string.format("%s(-%.1fs)", sgl.k, now - sgl.t) end
+				end
+				if #list > 0 then note("   signals before it: " .. table.concat(list, " ")) end
+			end
 			local bm = nearestEnemy(pos)
 			note(string.format("MISS #%d  hp -%.0f%%  hazards=%d zones=%d  boss=%s", D.misses, lost * 100, D.hazN, #D.zones, bm and bm.Name or "?"))
 			local n, seen = 0, {}
@@ -1243,7 +1342,10 @@ local milkOk, milkErr = xpcall(function()
 		end
 
 		resetDodgeLearning = function()
-			D.boost, D.far, D.learned, D.learnedN = 1, false, {}, 0
+			D.boost, D.far, D.learnedN = 1, false, 0
+			for k in pairs(D.learned) do D.learned[k] = nil end
+			for k in pairs(D.wmode) do D.wmode[k] = nil end
+			for k in pairs(D.sigLearn) do D.sigLearn[k] = nil end
 		end
 
 		------------ per frame
@@ -1276,43 +1378,41 @@ local milkOk, milkErr = xpcall(function()
 			local lost = (D.lastHp and maxHp > 0) and (D.lastHp - hp) / maxHp or 0
 			D.lastHp = hp
 
-			-- in the air above a skill
+			-- out of a skill's reach (up / out / out+up)
 			local f = D.float
 			if f then
 				D.lastDodge = now
-				local H = needHeight(f.ground, f.baseY)
-				if f.baseY + H > f.pos.Y then f.pos = Vector3.new(f.pos.X, f.baseY + H, f.pos.Z) end
+				local want = escapePos(f)
+				if f.mode == 1 then
+					if want.Y > f.pos.Y then f.pos = want end
+				elseif flat(want, f.ground) > flat(f.pos, f.ground) + 5 or want.Y > f.pos.Y + 5 then
+					f.pos = want
+				end
 				local threatened, threat = danger(f.ground, cfg.Margin + 4, true, 1.5)
+				if now < f.holdUntil then threatened = true end
 				if lost > 0.02 and now - f.t0 > 0.15 and now - f.lastBoost > 0.4 then
 					f.lastBoost = now
 					f.hits = f.hits + 1
 					D.misses = D.misses + 1
-					D.boost = math.min(D.boost * 1.6, 6)
-					note(string.format("HIT while floating at +%.0f -> float height x%.1f", f.pos.Y - f.baseY, D.boost))
-					local H2 = needHeight(f.ground, f.baseY)
-					if f.baseY + H2 > f.pos.Y then f.pos = Vector3.new(f.pos.X, f.baseY + H2, f.pos.Z) end
-					if f.hits >= 2 then
-						if not D.far then
-							D.far = true
-							note("floating does not avoid this skill -> using far ground escape from now on")
-						end
-						local tgt = findSafe(f.ground, threat, f.baseY - f.off, f.off, false) or findSafe(f.ground, threat, f.baseY - f.off, f.off, true)
-						if tgt then
-							if not D.origin then D.origin = f.ground end
-							D.float = nil
-							D.dodges = D.dodges + 1
-							tp(tgt)
-							status = string.format("float failed -> ground escape %.0f studs", flat(f.ground, tgt))
-							return
-						end
+					D.lastMiss = now
+					if cfg.LearnHits then blameSignals(now) end
+					if f.mode < 3 then
+						f.mode = f.mode + 1
+						D.wmode[f.boss] = f.mode
+						note(string.format("HIT while escaping -> %s now uses '%s'", f.boss, MODE_NAME[f.mode]))
+					else
+						D.boost = math.min(D.boost * 1.5, 5)
+						note(string.format("HIT even out+up -> range x%.1f (if this keeps happening the hit is not position based)", D.boost))
 					end
+					f.pos = escapePos(f)
+					f.holdUntil = math.max(f.holdUntil, now + 1)
 				end
 				if threatened then f.clearAt = nil elseif not f.clearAt then f.clearAt = now end
 				local age = now - f.t0
 				local land
-				if f.clearAt and now - f.clearAt >= 0.25 and age >= 0.6 then
+				if f.clearAt and now - f.clearAt >= 0.3 and age >= 0.6 then
 					land = f.ground
-				elseif age > 8 then
+				elseif age > 10 then
 					land = findSafe(f.ground, threat, f.baseY - f.off, f.off, false) or findSafe(f.ground, threat, f.baseY - f.off, f.off, true)
 					if not land and age > 20 then land = f.ground end
 				end
@@ -1338,13 +1438,14 @@ local milkOk, milkErr = xpcall(function()
 				D.misses = D.misses + 1
 				if now - D.lastDodge <= 0.5 then
 					note(string.format("LATE hit %.2f s after a dodge  hp -%.0f%%", now - D.lastDodge, lost * 100))
+					if cfg.LearnHits then blameSignals(now) end
 				else
 					unpredicted = true
 				end
 			end
 
 			-- 360 wave centred on the boss
-			if D.hazN > 0 and cfg.WaveFloat and not D.far and waveThreat(pos) then
+			if D.hazN > 0 and cfg.WaveFloat and waveThreat(pos) then
 				startFloat(hrp, pos, refY, off, "360 wave")
 				return
 			end
@@ -1418,7 +1519,9 @@ local milkOk, milkErr = xpcall(function()
 
 		-- boss starts an attack animation while you are in melee reach -> leave before the hit lands
 		onBossAttack = function(m, nm)
-			if not cfg.Dodge or not cfg.AnimDodge then return end
+			if not cfg.Dodge then return end
+			pushSignal("ANIM:" .. tostring(nm))
+			if not cfg.AnimDodge then return end
 			local _, hrp = getChar()
 			local c = posOf(m)
 			if not hrp or not c then return end
@@ -1429,6 +1532,8 @@ local milkOk, milkErr = xpcall(function()
 				pcall(step, 0)
 			end
 		end
+
+		pushSignalRef = pushSignal
 
 		------------ boss events: tables that carry a position + radius become zones before anything is drawn
 		local function scanArgs(t, depth, hrpPos)
@@ -1467,7 +1572,11 @@ local milkOk, milkErr = xpcall(function()
 					while times[1] and now - times[1] > 2 do table.remove(times, 1) end
 					local stream = #times > 6 -- fires constantly (hp sync etc.): not a cast signal
 					local a = table.pack(...)
-					if not stream then D.lastCast = now end
+					if not stream then
+						D.lastCast = now
+						local tag = (type(a[1]) == "string" and #a[1] < 40) and (":" .. a[1]) or ""
+						pushSignal((nm == "AHE_BossUlt" and "ULT" or ("CAST:" .. nm)) .. tag)
+					end
 					if cfg.WideDetect then
 						local _, hrp = getChar()
 						if hrp then pcall(scanArgs, a, 1, hrp.Position) end
@@ -2363,6 +2472,7 @@ local milkOk, milkErr = xpcall(function()
 	toggle("Anim Pre-Dodge", "AnimDodge")
 	toggle("Wide Detect (fx folders / names / casts)", "WideDetect")
 	toggle("Move Away On Unpredicted Hit", "HitDodge")
+	toggle("Escape On Boss Ult / Roar", "EscapeOnUlt")
 	toggle("Learn Skills From Hits", "LearnHits")
 	toggle("Return To Spot", "ReturnBack")
 	toggle("Show Hazards (red / yellow)", "ShowHazards", function()
@@ -2566,7 +2676,7 @@ local milkOk, milkErr = xpcall(function()
 					"combat      : " .. (D.combat and "yes" or "no"),
 					"hazards     : " .. D.hazN,
 					"dodges      : " .. D.dodges .. "   floats: " .. D.floats .. "   misses: " .. D.misses,
-					string.format("float       : x%.1f  far=%s  learned=%d", D.boost, D.far and "yes" or "no", D.learnedN),
+					"wave escape : " .. dodgeSummary(),
 					"learn replay: " .. (L.replayBtn and ("btn " .. tostring(L.replayBtn.path[#L.replayBtn.path])) or "auto-find") .. (L.replayCall and ("  remote " .. tostring(L.replayCall.name)) or ""),
 					"replay      : " .. rep.why,
 					"replays     : " .. stat.replays,
