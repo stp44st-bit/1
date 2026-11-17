@@ -204,25 +204,28 @@ local milkOk, milkErr = xpcall(function()
 		L.claim, L.lastEntry, L.ENTRY_AUTO, L.entryName, L.replayCall = nil, nil, nil, nil, nil
 	end
 	local NOT_LEARN = { AHE_EggStand = true, AHE_EggOpen = true, AHE_EggHatch = true, AHE_Sell = true, AHE_ForestItems = true, AHE_InfinityEggs = true }
-	local armClaimUntil, armReplayUntil = 0, 0   -- only armed by the buttons in the menu
+	-- learn mode (menu buttons): the next game button you click is remembered, plus the remote it fires within 1.5 s (if any)
+	local learn = { kind = nil, untilT = 0, clickAt = nil, gotRemote = false }
+	local NO_LEARN = { AHE_Skill = true, AHE_StandSkill = true, AHE_Weapon = true, AHE_PetFight = true, AHE_Swap = true, AHE_Mount = true,
+		AHE_AfkMode = true, AHE_CutsceneSkip = true }
+	for k in pairs(NOT_LEARN) do NO_LEARN[k] = true end
+	stat.seen, stat.hook = 0, "none"
 	local popupAt, popupArgs = -100, nil
 	local lastUserInput = -100
 
-	env.MilkHatch_On = true
-	env.MilkHatch_Cap = function(remote, method, nm, args)
+	-- older versions of this script left a hook that ran this callback inside the game's own remote call: switch it off
+	env.MilkHatch_On = false
+	env.MilkHatch_Cap = nil
+	local function onRemote(remote, method, nm, args)
+		stat.seen = stat.seen + 1
 		if nm == "AHE_Skill" or nm == "AHE_StandSkill" or nm == "AHE_Weapon" then stat.ownSkillAt = os.clock() end
 		local now = os.clock()
-		if (armClaimUntil > now or armReplayUntil > now) and not NOISE[nm] and not NOT_LEARN[nm] then
+		local kind = learn.kind
+		if kind and not learn.gotRemote and learn.clickAt and now - learn.clickAt < 1.5 and not NO_LEARN[nm] then
+			learn.gotRemote = true
 			local rec = { remote = remote, method = method, args = args, popup = popupArgs, name = nm }
-			if armReplayUntil > now then
-				armReplayUntil = 0
-				L.replayCall = rec
-				note("learned REPLAY " .. nm .. " " .. ser(args))
-			else
-				armClaimUntil = 0
-				L.claim = rec
-				note("learned CLAIM " .. nm .. " " .. ser(args))
-			end
+			if kind == "replay" then L.replayCall = rec else L.claim = rec end
+			note("learned " .. kind .. " remote " .. nm .. " " .. ser(args))
 		end
 		if WATCH[nm] then
 			local near = nearestStand()
@@ -245,20 +248,57 @@ local milkOk, milkErr = xpcall(function()
 		end
 	end
 
-	if hookmetamethod and getnamecallmethod and not env.MilkHatch_Hooked then
-		local old
-		local function h(self, ...)
-			local m = getnamecallmethod()
-			if (m == "FireServer" or m == "InvokeServer") and env.MilkHatch_On and env.MilkHatch_Cap
-				and not (checkcaller and checkcaller()) then
-				if typeof(self) == "Instance" then pcall(env.MilkHatch_Cap, self, m, self.Name, table.pack(...)) end
+	env.MilkHatch_Cap2 = function(...)
+		local ok, err = pcall(onRemote, ...)
+		if not ok then note("remote callback error: " .. tostring(err)) end
+	end
+
+	-- hook v2: does nothing inside the game's call except hand the data to a separate thread, then restores the call untouched
+	local SPAM = { ReplicateHook = true, ReplicateVFX = true, ReplicateAudio = true, AHE_HitLog = true, AHE_Follow = true, AHE_Stat = true }
+	if env.MilkHatch_Hooked2 then
+		stat.hook = env.MilkHatch_Hooked2
+	else
+		if hookmetamethod and getnamecallmethod then
+			local old
+			local function h(self, ...)
+				local m = getnamecallmethod()
+				if (m == "FireServer" or m == "InvokeServer") and env.MilkHatch_Cap2 and typeof(self) == "Instance"
+					and not (checkcaller and checkcaller()) then
+					local nm = self.Name
+					if not SPAM[nm] then
+						task.spawn(env.MilkHatch_Cap2, self, m, nm, table.pack(...))
+						if setnamecallmethod then setnamecallmethod(m) end
+					end
+				end
+				return old(self, ...)
 			end
-			return old(self, ...)
+			local okH, errH = pcall(function()
+				old = hookmetamethod(game, "__namecall", newcclosure and newcclosure(h) or h)
+			end)
+			if okH and old then env.MilkHatch_Hooked2 = "namecall" else note("namecall hook failed: " .. tostring(errH)) end
 		end
-		local okH, errH = pcall(function()
-			old = hookmetamethod(game, "__namecall", newcclosure and newcclosure(h) or h)
-		end)
-		if okH and old then env.MilkHatch_Hooked = true else note("hook failed: " .. tostring(errH)) end
+		if not env.MilkHatch_Hooked2 and hookfunction then -- fallback for executors without a working hookmetamethod
+			local okF, errF = pcall(function()
+				local function wrap(class, method)
+					local inst = Instance.new(class)
+					local orig
+					local function hf(self, ...)
+						if env.MilkHatch_Cap2 and typeof(self) == "Instance" and not (checkcaller and checkcaller()) then
+							local nm = self.Name
+							if not SPAM[nm] then task.spawn(env.MilkHatch_Cap2, self, method, nm, table.pack(...)) end
+						end
+						return orig(self, ...)
+					end
+					orig = hookfunction(inst[method], newcclosure and newcclosure(hf) or hf)
+					inst:Destroy()
+				end
+				wrap("RemoteEvent", "FireServer")
+				wrap("RemoteFunction", "InvokeServer")
+				pcall(wrap, "UnreliableRemoteEvent", "FireServer")
+			end)
+			if okF then env.MilkHatch_Hooked2 = "hookfunction" else note("hookfunction fallback failed: " .. tostring(errF)) end
+		end
+		stat.hook = env.MilkHatch_Hooked2 or "none"
 	end
 
 	-- replay a learned call; swaps the stand id / egg name / stand instance for the selected stand
@@ -559,7 +599,7 @@ local milkOk, milkErr = xpcall(function()
 		local EXCL = { AHE_Followers = true, AHE_Companions = true, AHE_Stands = true, AHE_PitWalkers = true, AHE_HitFX = true, AHE_ODMKit = true,
 			AHE_SwapFX = true, AHE_ForestDrops = true, AHE_DroppedEggs = true, LocalDeathFragments = true, GateVortex = true, AHE_SkyFX = true,
 			AHE_MountPets = true, AHE_Kunais = true, AHE_NpcRings = true, AHE_RingQuestRings = true, AHE_BossUnits = true, EggStands = true }
-		local CAST_EVENTS = { "AHE_Boss", "AHE_PitBoss", "AHE_Guardian", "AHE_ScrollBoss", "AHE_Suruka", "AHE_SukunaWarp" }
+		local CAST_EVENTS = { "AHE_Boss", "AHE_BossUlt", "AHE_PitBoss", "AHE_Guardian", "AHE_ScrollBoss", "AHE_Suruka", "AHE_SukunaWarp" }
 		local R_KEYS = { "Radius", "radius", "Range", "range", "HitRadius", "AoE", "AOE", "R" }
 		local RAD_HINT = { "radius", "range", "aoe", "reach" }
 		local TIME_HINT = { "delay", "windup", "time", "duration", "telegraph" }
@@ -607,19 +647,25 @@ local milkOk, milkErr = xpcall(function()
 		local function underEnemy(inst)
 			local o = inst.Parent
 			while o and o ~= Workspace do
-				if o:IsA("Model") and o:GetAttribute("MaxHP") ~= nil then return true end
+				if o:IsA("Model") and o:GetAttribute("MaxHP") ~= nil and o:GetAttribute("OreType") == nil then return true end
 				o = o.Parent
 			end
 			return false
 		end
 
+		local BAD_FLOOR = { "lava", "spike", "moat", "acid", "poison", "kill", "void", "magma" }
 		local function ground(x, y, z)
 			refreshExclude()
 			local hit = Workspace:Raycast(Vector3.new(x, y + 12, z), Vector3.new(0, -60, 0), rp)
 			if not hit or underEnemy(hit.Instance) then return nil end
+			local hn = string.lower(hit.Instance.Name)
+			for _, w in ipairs(BAD_FLOOR) do
+				if string.find(hn, w, 1, true) then return nil end -- boss rooms have Arena_FloorLava / Arena_LavaMoat / Arena_Spikes
+			end
 			return hit.Position
 		end
 
+		local arenaFor
 		local function standOffset(hrp, hum)
 			if hum.RigType == Enum.HumanoidRigType.R15 then return hum.HipHeight + hrp.Size.Y / 2 end
 			return 3
@@ -631,6 +677,10 @@ local milkOk, milkErr = xpcall(function()
 				D.floorAt = now
 				local g = ground(hrp.Position.X, hrp.Position.Y - standOffset(hrp, hum), hrp.Position.Z)
 				if g then D.lastFloor = g.Y end
+			end
+			if not D.lastFloor then -- never stood on anything yet (spawned in the air): the room's own floor height
+				local _, _, fy = arenaFor(hrp.Position)
+				if fy then return fy end
 			end
 			return D.lastFloor
 		end
@@ -665,7 +715,16 @@ local milkOk, milkErr = xpcall(function()
 		------------ enemies = any model with MaxHP + HP attributes that is not a player
 		local function considerEnemy(m)
 			if m:IsA("Model") and m:GetAttribute("MaxHP") ~= nil and m:GetAttribute("HP") ~= nil
+				and m:GetAttribute("OreType") == nil -- cave ore nodes carry hp too
 				and not Players:GetPlayerFromCharacter(m) then
+				if not D.enemies[m] and m:GetAttribute("Roaring") ~= nil then
+					track(m:GetAttributeChangedSignal("Roaring"):Connect(function()
+						if m:GetAttribute("Roaring") == true then
+							D.lastCast = os.clock()
+							note("ROAR " .. tostring(m:GetAttribute("BossName") or m.Name))
+						end
+					end))
+				end
 				D.enemies[m] = true
 			end
 		end
@@ -723,27 +782,43 @@ local milkOk, milkErr = xpcall(function()
 			return bm, bd, bp
 		end
 
+		local bodyR = setmetatable({}, { __mode = "k" })
+		local function unitR(m)
+			local r = m:GetAttribute("UnitRadius")
+			if type(r) == "number" then return r end
+			r = bodyR[m]
+			if not r then
+				r = 6
+				pcall(function()
+					local e = m:GetExtentsSize()
+					r = math.clamp(math.max(e.X, e.Z) / 2 * 0.6, 4, 45)
+				end)
+				bodyR[m] = r
+			end
+			return r
+		end
 		local function nearBossFlat(pos, within)
 			for _, e in ipairs(D.pts) do
-				if flat(e.p, pos) <= within + (e.m:GetAttribute("UnitRadius") or 0) then return true end
+				if flat(e.p, pos) <= within + unitR(e.m) then return true end
 			end
 			return false
 		end
 
 		-- arena bounds so a ground dodge stays inside the fight room when it can
-		local function arenaFor(pos)
+		arenaFor = function(pos)
 			if os.clock() - D.arenaAt > 10 then
 				D.arenaAt = os.clock()
 				D.arenas = {}
 				for _, r in ipairs(Workspace:GetChildren()) do
 					local c, rad = r:GetAttribute("Center"), r:GetAttribute("Radius")
-					if typeof(c) == "Vector3" and type(rad) == "number" then
-						D.arenas[#D.arenas + 1] = { c = c, r = rad }
+					if typeof(c) == "Vector3" and type(rad) == "number" and rad >= 60 then -- lobby zones (sell / shop ...) are 9-30 wide
+						local fy = r:GetAttribute("FloorY")
+						D.arenas[#D.arenas + 1] = { c = c, r = rad, floor = type(fy) == "number" and fy or c.Y }
 					end
 				end
 			end
 			for _, a in ipairs(D.arenas) do
-				if flat(a.c, pos) <= a.r * 1.25 then return a.c, a.r end
+				if flat(a.c, pos) <= a.r * 1.25 and math.abs(pos.Y - a.c.Y) < 700 then return a.c, a.r, a.floor end
 			end
 		end
 
@@ -964,6 +1039,10 @@ local milkOk, milkErr = xpcall(function()
 								if h.mesh and h.mesh.MeshType == Enum.MeshType.Sphere then h.shape = BALL end
 							end
 							if not h.attrR then h.attrR = readAttrR(part) end
+						if not h.tele and part:FindFirstChildOfClass("SurfaceGui") then
+							h.tele = true
+							h.minR = h.minR or math.max(h.size.X, h.size.Z) / 2
+						end
 							if h.big < 1.5 and not h.minR and age > 0.3 and h.src == "folder"
 								and (part:FindFirstChildWhichIsA("ParticleEmitter", true) or part:FindFirstChildWhichIsA("Beam", true)) then
 								h.minR = 8 -- invisible emitter part: treat it as a small circle
@@ -1343,7 +1422,7 @@ local milkOk, milkErr = xpcall(function()
 			local _, hrp = getChar()
 			local c = posOf(m)
 			if not hrp or not c then return end
-			local reach = (m:GetAttribute("UnitRadius") or 6) + 14
+			local reach = unitR(m) + 14
 			if flat(hrp.Position, c) <= reach + cfg.Margin then
 				addZone(c, reach, 1)
 				note(string.format("ANIM %s '%s' reach=%.0f", m.Name, nm, reach))
@@ -1627,6 +1706,48 @@ local milkOk, milkErr = xpcall(function()
 	end))
 	local function userBusy() return os.clock() - lastUserInput < 3 end
 
+	-- learned buttons are kept as a name path under PlayerGui so they survive the dialog being rebuilt (and a rejoin)
+	local function pathOf(g)
+		local names, o = {}, g
+		local pg = LP:FindFirstChildOfClass("PlayerGui")
+		while o and o ~= pg and o.Parent do
+			table.insert(names, 1, o.Name)
+			o = o.Parent
+		end
+		return names
+	end
+	local function resolveBtn(rec)
+		if not rec then return nil end
+		local pg = LP:FindFirstChildOfClass("PlayerGui")
+		if rec.inst and rec.inst.Parent and pg and rec.inst:IsDescendantOf(pg) then return rec.inst end
+		local o = pg
+		for _, n in ipairs(rec.path or {}) do
+			o = o and o:FindFirstChild(n)
+			if not o then return nil end
+		end
+		if o == pg then return nil end
+		rec.inst = o
+		return o
+	end
+	local function saveLearned()
+		if not writefile then return end
+		pcall(function()
+			writefile("milk_ahe_learned.json", Http:JSONEncode({
+				replay = L.replayBtn and L.replayBtn.path or nil,
+				claim = L.claimBtn and L.claimBtn.path or nil,
+			}))
+		end)
+	end
+	pcall(function()
+		if isfile and readfile and isfile("milk_ahe_learned.json") then
+			local t = Http:JSONDecode(readfile("milk_ahe_learned.json"))
+			if type(t) == "table" then
+				if not L.replayBtn and type(t.replay) == "table" and #t.replay > 0 then L.replayBtn = { path = t.replay } end
+				if not L.claimBtn and type(t.claim) == "table" and #t.claim > 0 then L.claimBtn = { path = t.claim } end
+			end
+		end
+	end)
+
 	local LEAVE_WORDS = { "leave", "exit", "lobby", "return", "quit", "back", "home", "close", "ออก", "กลับ", "ปิด" }
 	local REPLAY_WORDS = { "replay", "retry", "again", "rematch", "restart", "play again", "เล่นอีก", "ลองใหม่", "เริ่มใหม่", "อีกครั้ง" }
 	local CLAIM_WORDS = { "claim", "collect", "take", "get", "ok", "okay", "confirm", "receive", "รับ", "เก็บ", "ตกลง" }
@@ -1747,7 +1868,19 @@ local milkOk, milkErr = xpcall(function()
 			status = "claimed via remote " .. tostring(L.claim.name)
 			return true
 		end
-		-- 2) the popup's own button handler (not a mouse click)
+		-- 2) the button taught with Learn Claim
+		local cb = resolveBtn(L.claimBtn)
+		if cb and shown(cb) and (not pressedAt[cb] or os.clock() - pressedAt[cb] > 1.5) then
+			pressedAt[cb] = os.clock()
+			if pressButton(cb, "all") then
+				stat.claims = stat.claims + 1
+				status = "claimed via learned button " .. cb.Name
+				note("claim (learned button): " .. cb:GetFullName() .. " (" .. src .. ")")
+				return true
+			end
+			status = "learned claim button has no click handler"
+		end
+		-- 3) the popup's own button handler (not a mouse click)
 		for _, b in ipairs(popupButtons()) do
 			if not pressedAt[b] or os.clock() - pressedAt[b] > 1.5 then
 				pressedAt[b] = os.clock()
@@ -1824,12 +1957,31 @@ local milkOk, milkErr = xpcall(function()
 	end
 	-- a replay button that is on screen now and was not already there when the mode started
 	local function visibleReplayBtn()
+		local lb = resolveBtn(L.replayBtn) -- taught with Learn Replay: always wins
+		if lb and shown(lb) then return lb end
 		for b in pairs(replayCache) do
 			if not b.Parent then
 				replayCache[b] = nil
 			elseif not rep.ignore[b] and shown(b) then
 				return b
 			end
+		end
+		return nil
+	end
+
+	-- BossRoom_1..8 carry Center / Radius / Active: the room you stand in tells when its fight runs
+	local rooms, roomsAt = {}, -100
+	local function myRoom(pos)
+		if os.clock() - roomsAt > 10 then
+			roomsAt = os.clock()
+			rooms = {}
+			for _, r in ipairs(Workspace:GetChildren()) do
+				if string.sub(r.Name, 1, 9) == "BossRoom_" and typeof(r:GetAttribute("Center")) == "Vector3" then rooms[#rooms + 1] = r end
+			end
+		end
+		for _, r in ipairs(rooms) do
+			local c = r:GetAttribute("Center")
+			if flat(c, pos) <= (r:GetAttribute("Radius") or 142) * 1.3 and math.abs(pos.Y - c.Y) < 700 then return r end
 		end
 		return nil
 	end
@@ -1962,6 +2114,18 @@ local milkOk, milkErr = xpcall(function()
 					end
 				end
 				rep.lastPos = pos
+				local room = myRoom(pos)
+				local act = (room and room:GetAttribute("Active") == true) or false
+				if room and room == rep.room then
+					if act and not rep.roomActive then
+						modeStart(room.Name .. " active")
+					elseif rep.roomActive and not act then
+						modeEnd(room.Name .. " fight finished", true)
+					end
+				elseif act then
+					modeStart(room.Name .. " active")
+				end
+				rep.room, rep.roomActive = room, act
 				if rep.boss then
 					if not rep.boss.Parent or (rep.boss:GetAttribute("HP") or 0) <= 0 then modeEnd("boss dead", false) end
 				else
@@ -1990,6 +2154,13 @@ local milkOk, milkErr = xpcall(function()
 					rescanAt = now
 					task.spawn(rescanReplay)
 				end
+				-- the taught button showing up is an ending by itself, even if no boss / mode was tracked
+				local lb = resolveBtn(L.replayBtn)
+				local lbShown = (lb and shown(lb)) or false
+				if lbShown and not rep.lbShown and not rep.endedAt and not learn.kind then
+					modeEnd("learned replay button appeared", true)
+				end
+				rep.lbShown = lbShown
 				if rep.inMode or rep.endedAt then
 					rb = visibleReplayBtn()
 					if rb then modeEnd("replay button on screen", true) end
@@ -2223,16 +2394,78 @@ local milkOk, milkErr = xpcall(function()
 	cycle("Replay Delay", "ReplayDelay", RDELAYS, " s")
 	toggle("Auto Claim Reward Popup", "AutoClaim")
 	cycle("Claim Delay", "ClaimDelay", CDELAYS, " s")
-	local bl = btn("Learn Replay (then press the game's Replay)")
-	track(bl.MouseButton1Click:Connect(function()
-		armClaimUntil, armReplayUntil = 0, os.clock() + 30
-		status = "armed 30s: press the game's Replay button now"
-	end))
-	local bc = btn("Learn Claim (then claim the popup by hand)")
-	track(bc.MouseButton1Click:Connect(function()
-		armReplayUntil, armClaimUntil = 0, os.clock() + 30
-		status = "armed 30s: claim the reward by hand now"
-	end))
+	local function arm(kind, what)
+		learn.kind, learn.untilT, learn.clickAt, learn.gotRemote = kind, os.clock() + 30, nil, false
+		status = "LEARN " .. kind .. ": now click " .. what .. " in the game (30 s)"
+		task.delay(30.5, function()
+			if learn.kind == kind and not learn.clickAt and os.clock() >= learn.untilT then
+				learn.kind = nil
+				status = "learn " .. kind .. ": timed out, nothing was clicked"
+			end
+		end)
+	end
+	local bl = btn("Learn Replay  (click this, then the game's Replay)")
+	track(bl.MouseButton1Click:Connect(function() arm("replay", "the Replay button") end))
+	local bc = btn("Learn Claim  (click this, then the popup's button)")
+	track(bc.MouseButton1Click:Connect(function() arm("claim", "the popup / its button") end))
+	do -- the click that follows: remember the game button under it
+		local GuiService = S("GuiService")
+		local function buttonAt(x, y)
+			local pg = LP:FindFirstChildOfClass("PlayerGui")
+			if not pg then return nil end
+			local ok, list = pcall(pg.GetGuiObjectsAtPosition, pg, x, y)
+			if not ok or type(list) ~= "table" then return nil end
+			for _, g in ipairs(list) do
+				local o = g
+				while o and not o:IsA("LayerCollector") do
+					if o:IsA("GuiButton") then return o end
+					o = o.Parent
+				end
+			end
+			return nil
+		end
+		track(UIS.InputBegan:Connect(function(i)
+			local kind = learn.kind
+			if not kind or learn.clickAt then return end
+			local t = i.UserInputType
+			if t ~= Enum.UserInputType.MouseButton1 and t ~= Enum.UserInputType.Touch then return end
+			if os.clock() > learn.untilT then
+				learn.kind = nil
+				return
+			end
+			local x, y = i.Position.X, i.Position.Y
+			if win.Visible then -- clicks on this menu do not count
+				local ap, sz = win.AbsolutePosition, win.AbsoluteSize
+				if x >= ap.X and x <= ap.X + sz.X and y >= ap.Y and y <= ap.Y + sz.Y then return end
+			end
+			local b = buttonAt(x, y)
+			if not b then
+				local inset = GuiService:GetGuiInset()
+				b = buttonAt(x, y + inset.Y) or buttonAt(x, y - inset.Y)
+			end
+			learn.clickAt = os.clock()
+			learn.gotRemote = false
+			if kind == "replay" then
+				L.replayCall = nil
+				L.replayBtn = b and { inst = b, path = pathOf(b) } or nil
+				rep.lbShown = true -- you are pressing it yourself right now: do not press it again this round
+				rep.presses, rep.remoteDone = 3, true
+			else
+				L.claim = nil
+				L.claimBtn = b and { inst = b, path = pathOf(b) } or nil
+			end
+			if b then note("learned " .. kind .. " button " .. b:GetFullName()) end
+			task.delay(1.6, function() -- the game has had time to fire its remote
+				if learn.kind ~= kind then return end
+				learn.kind = nil
+				local r = (kind == "replay") and L.replayCall or L.claim
+				status = "learned " .. kind .. ": " .. (b and ("button " .. b.Name) or "no button under that click")
+					.. ((learn.gotRemote and r) and (" + remote " .. tostring(r.name)) or " (no remote fired)")
+				note(status)
+				saveLearned()
+			end)
+		end))
+	end
 	local bp = btn("Popup Scan (run while the popup is open)")
 	track(bp.MouseButton1Click:Connect(function() task.spawn(popupScan) end))
 	local br = btn("Replay Now (test)")
@@ -2244,7 +2477,8 @@ local milkOk, milkErr = xpcall(function()
 	end))
 	local bf = btn("Forget Replay + Claim")
 	track(bf.MouseButton1Click:Connect(function()
-		L.replayCall, L.claim = nil, nil
+		L.replayCall, L.claim, L.replayBtn, L.claimBtn = nil, nil, nil, nil
+		saveLearned()
 		status = "replay + claim forgotten"
 	end))
 
@@ -2303,7 +2537,7 @@ local milkOk, milkErr = xpcall(function()
 	end))
 
 	section("LIVE")
-	local info = mk("TextLabel", { Size = UDim2.new(1, 0, 0, 214), BackgroundColor3 = PANEL, BorderSizePixel = 0, Text = "", TextColor3 = TXT, Font = Enum.Font.Code,
+	local info = mk("TextLabel", { Size = UDim2.new(1, 0, 0, 250), BackgroundColor3 = PANEL, BorderSizePixel = 0, Text = "", TextColor3 = TXT, Font = Enum.Font.Code,
 		TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, LayoutOrder = nextO() }, scroll)
 	mk("UICorner", { CornerRadius = UDim.new(0, 5) }, info)
 	mk("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingTop = UDim.new(0, 6) }, info)
@@ -2333,10 +2567,12 @@ local milkOk, milkErr = xpcall(function()
 					"hazards     : " .. D.hazN,
 					"dodges      : " .. D.dodges .. "   floats: " .. D.floats .. "   misses: " .. D.misses,
 					string.format("float       : x%.1f  far=%s  learned=%d", D.boost, D.far and "yes" or "no", D.learnedN),
-					"replay call : " .. (L.replayCall and L.replayCall.name or "button only"),
+					"learn replay: " .. (L.replayBtn and ("btn " .. tostring(L.replayBtn.path[#L.replayBtn.path])) or "auto-find") .. (L.replayCall and ("  remote " .. tostring(L.replayCall.name)) or ""),
 					"replay      : " .. rep.why,
 					"replays     : " .. stat.replays,
-					"claim remote: " .. (L.claim and L.claim.name or "not learned") .. "   popups " .. stat.popups .. "  claims " .. stat.claims,
+					"learn claim : " .. (L.claimBtn and ("btn " .. tostring(L.claimBtn.path[#L.claimBtn.path])) or "auto-find") .. (L.claim and ("  remote " .. tostring(L.claim.name)) or ""),
+					"popups " .. stat.popups .. "   claims " .. stat.claims,
+					"hook        : " .. tostring(stat.hook) .. "   remotes seen " .. tostring(stat.seen),
 					"obito       : targets " .. OB.n .. "  grab " .. stat.obGrab .. "  deliver " .. stat.obDeliver,
 				}, "\n")
 				statusL.Text = "  " .. status
@@ -2347,8 +2583,7 @@ local milkOk, milkErr = xpcall(function()
 
 	env.MilkHatch_Unload = function()
 		running = false
-		env.MilkHatch_On = false
-		env.MilkHatch_Cap = nil
+		env.MilkHatch_Cap2 = nil
 		cfg.Hatch, cfg.Sell, cfg.Collect, cfg.Dodge = false, false, false, false
 		cfg.AutoReplay, cfg.AutoClaim, cfg.Obito = false, false, false
 		for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
